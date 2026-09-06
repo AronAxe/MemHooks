@@ -44,15 +44,52 @@ That is deliberately a *cue*, not a stored memory. The actual facts remain in th
 
 The script only auto-writes inside a tree that has already opted in with an ancestor `MEMHOOKS.md`.
 
+### Why auto-anchors stay untyped
+
+A deterministic path hook can know **which files changed**, but it cannot reliably determine whether the relevant Hindsight memory is a `world` fact, `experience`, or `observation`; whether the useful connection emphasis is semantic, temporal, entity, or causal; or what an entity's type should be.
+
+MemHooks deliberately does **not guess** those classifications. Automatic file-path anchors remain untyped.
+
 ### Same-turn semantic notes
 
-Pure scripts can know **which files changed**, but they cannot reliably decide the semantic reason a strange architecture exists. When the current agent has already discovered that reason during its normal turn, it can record one future retrieval question with the same deterministic script:
+When the current agent has already discovered the semantic reason something matters during its normal turn, it can record one future retrieval question with the same deterministic script.
+
+Simple note:
 
 ```bash
 python3 ~/.hermes/agent-hooks/memhooks_update.py note \
   --cwd "$PWD" \
   --query "Why was refresh-token rotation split into two stages, and what alternatives were rejected?"
 ```
+
+Structured note when the classifications are genuinely known:
+
+```bash
+python3 ~/.hermes/agent-hooks/memhooks_update.py note \
+  --cwd "$PWD" \
+  --query "Why did the authentication design change after the outage?" \
+  --memory-type experience \
+  --connection-type causal \
+  --connection-type temporal \
+  --entity 'Authentication' \
+  --entity '{"name":"OpenAI","type":"ORG"}'
+```
+
+Supported Hindsight-compatible memory categories are:
+
+```text
+world | experience | observation
+```
+
+Supported MemHooks connection-emphasis values are:
+
+```text
+semantic | temporal | entity | causal
+```
+
+`--entity` accepts either a plain entity name or a JSON object containing `name` (or Hindsight-style `text`) and an optional explicit `type`.
+
+The note block is stored as a bounded JSON array inside `MEMHOOKS.md`, so this routing metadata survives maintenance. Existing older markdown-bullet notes are still understood and are migrated when the block is next written.
 
 This uses the model call that is already happening. It does **not** start a second summarizer/model pass.
 
@@ -95,10 +132,10 @@ With both hooks installed and the project initialized:
 
 - applicable routing files are loaded before the LLM call;
 - touched file paths produce/refresh local recall anchors after tool calls;
+- semantic notes can preserve known memory category, connection emphasis, and typed entities;
+- deterministic maintenance never guesses those semantic classifications;
 - no extra LLM call is spent on either operation;
 - no memory is created/rewritten merely because MemHooks ran.
-
-Semantic refinement can still be added in the same active turn with `memhooks_update.py note` when the agent learns something non-obvious worth cueing later.
 
 ## Bounds
 
