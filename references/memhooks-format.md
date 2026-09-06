@@ -196,7 +196,7 @@ Optional advisory classification such as `public`, `internal`, or `private`. Res
 
 A runtime may maintain bounded retrieval cues in the Markdown body without rewriting hand-authored frontmatter. The reference maintainer uses two reserved blocks:
 
-```md
+````md
 <!-- memhooks:auto:start -->
 ## Auto-maintained recall anchors
 ...
@@ -216,7 +216,7 @@ A runtime may maintain bounded retrieval cues in the Markdown body without rewri
 ]
 ```
 <!-- memhooks:notes:end -->
-```
+````
 
 `auto` contains deterministic path-scoped anchors generated from tool activity. Since zero-LLM path detection cannot reliably classify semantic memory metadata, auto anchors remain intentionally untyped.
 
