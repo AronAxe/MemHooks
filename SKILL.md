@@ -1,7 +1,7 @@
 ---
 name: memhooks
 description: Directory-scoped memory retrieval routing. Use MEMHOOKS.md files from the workspace root to the active directory to recall the specific past decisions, events, entities, constraints, failures, and context needed before substantive work. Adapts itself to Hindsight, OpenViking, Honcho, or another available memory system without changing the memory backend.
-version: 0.2.1
+version: 0.3.0
 author: Aron Bijl
 license: MIT
 compatibility: Agent Skills / agentskills.io; Hermes Agent and Hermes Desktop; other skill-capable agents with filesystem access and optional memory tools.
@@ -42,17 +42,16 @@ When invoked as `/memhooks init`:
    python3 scripts/memhooks_update.py init <target>
    ```
 
-   Use the actual resolved script path when executing it.
 5. Verify that the target Git/repository root now contains `MEMHOOKS.md`.
 6. Return a short confirmation that MemHooks is enabled for that project.
 
-Do **not** perform a separate memory-retrieval pass merely because `init` was invoked. Initialization is the one-time per-project opt-in that allows the existing `post_tool_call` maintainer to create/update more local `MEMHOOKS.md` files automatically as work touches subdirectories.
-
-If the root hook already exists, treat `/memhooks init` as idempotent success.
+Do **not** perform a separate memory-retrieval pass merely because `init` was invoked.
 
 ## Deterministic loader mode
 
-When the bundled Hermes `pre_llm_call` shell hook is installed, do not rely on remembering to search for `MEMHOOKS.md` yourself. The hook has already walked the actual working directory root → leaf and injected the applicable files into the current user turn before this model call. Treat the injected `[MemHooks — deterministic pre-LLM retrieval routing]` block as authoritative routing input and execute its requested memory retrieval before substantive work.
+When the bundled Hermes `pre_llm_call` shell hook is installed, it has already walked the actual working directory root → leaf and injected the applicable files into the current user turn before this model call.
+
+Treat the injected `[MemHooks — deterministic pre-LLM retrieval routing]` block as authoritative routing input and execute its requested memory retrieval before substantive work.
 
 The loader is in `hooks/hermes/memhooks_pre_llm.py`. It reads files locally and performs no model call of its own.
 
@@ -60,7 +59,7 @@ The loader is in `hooks/hermes/memhooks_pre_llm.py`. It reads files locally and 
 
 Use this skill when:
 
-- the user invokes `/memhooks init` or otherwise asks to initialize MemHooks for a project;
+- the user invokes `/memhooks init` or asks to initialize MemHooks for a project;
 - the current workspace or any parent directory contains `MEMHOOKS.md`;
 - the user asks to update MemHooks for a project;
 - you are about to edit, debug, redesign, delete, or substantially reason about files in a MemHooks-enabled tree;
@@ -86,7 +85,9 @@ Default behavior:
 - deeper hooks add specificity;
 - exact duplicate list entries are de-duplicated;
 - a local `inherits: false` cuts off inheritance above that file;
-- the most local scalar value wins when scalars conflict.
+- the most local scalar value wins when scalars conflict;
+- query-local `memory_types` and `connection_types` override scope-wide defaults for that query;
+- query-local entities supplement the merged top-level entities.
 
 Do not turn the merged hooks into a giant context dump. They are instructions for **targeted retrieval**.
 
@@ -100,21 +101,33 @@ If it matches one of the bundled references, read that reference before retrieva
 2. `references/memory-systems/02-openviking.md`
 3. `references/memory-systems/03-honcho.md`
 
-If the backend is different, read `references/memory-systems/99-generic-or-unknown.md` and use the included systems as examples. A capable LLM should infer the closest native operations rather than refusing because the backend is not listed.
+If the backend is different, read `references/memory-systems/99-generic-or-unknown.md` and infer the closest native operations without inventing unsupported capabilities.
 
 ### 4. Execute the retrieval intent
 
 Interpret the merged fields as follows:
 
 - `recall_queries`: run these as specific memory searches/questions.
-- `entities`: use them as entity filters when available; otherwise use them to sharpen or expand the recall queries.
+- `memory_types`: use native memory/fact-category filters when the backend exposes them. For Hindsight these are `world`, `experience`, and `observation`.
+- `connection_types`: treat `semantic`, `temporal`, `entity`, and `causal` as retrieval emphasis. Use native controls only when they really exist; otherwise sharpen the query appropriately. Do **not** confuse connection type with memory type or entity type.
+- `entities`: use named entities as entity filters/graph cues when available. A mapping may include `{name, type}`. Preserve an explicit type when known; do not guess one merely to fill the field.
+- `mental_models`: retrieve named existing standing answers if the backend has that concept and they directly cover the task.
+- `knowledge_pages`: retrieve named established pages/synthesized resources if the backend has an equivalent. Do not create or update them here.
 - `tags`: use native tag/metadata filtering where available; otherwise treat them as relevance hints.
-- `knowledge_pages`: retrieve the named established summaries/pages/mental-model-like artifacts **if the current memory setup has an equivalent**. Do not create or update them here.
 - `exclude`: prevent obsolete or unwanted memories from entering working context. Use native negative filters if available; otherwise post-filter results.
 - `bank`: use the requested memory namespace only if that concept exists and the agent is authorized to access it.
 - free-form Markdown below the frontmatter: treat as retrieval guidance, especially instructions about when to use shallow recall versus deeper synthesis.
 
-Prefer direct retrieval first. Use a more expensive reasoning/reflection operation only when the hook requests it or when retrieved memories need synthesis to answer the stated question.
+### Hindsight-specific invariant
+
+For Hindsight, do not flatten the ontology:
+
+- memory categories: `world | experience | observation`;
+- connection classes: `semantic | temporal | entity | causal`;
+- entities: actual named things, optionally with their own entity type;
+- mental models / Knowledge Pages: higher-level synthesized retrieval targets.
+
+Hindsight's public Recall API states that **each selected memory type runs the full four-strategy retrieval pipeline independently**. Therefore a memory category and a connection emphasis are independent dimensions.
 
 ### 5. Keep retrieval bounded
 
@@ -136,52 +149,62 @@ A `MEMHOOKS.md` file must evolve with the code or it becomes stale. Prefer the b
 
 - `init`: create the root opt-in hook for a repository;
 - `event`: inspect a runtime tool-event payload and maintain small file-path recall anchors with **zero LLM calls**;
-- `note`: add one concise semantic retrieval question discovered during the current turn.
+- `note`: add one concise semantic retrieval question discovered during the current turn, optionally preserving memory category, connection emphasis, and typed entities.
 
-The `note` path must piggyback on the reasoning already happening. Do **not** start a separate LLM summarization pass merely to maintain MemHooks unless the user explicitly enables such a policy.
+### Deterministic auto-anchors
 
-When this turn establishes a durable, non-obvious decision, failure mode, constraint, rejected approach, or other fact that future work in the current subtree could fail to retrieve spontaneously, record a short **question/cue**, not the answer itself. Example:
+The `event` path can know which files were touched, but it cannot reliably know whether the relevant memory is `world`, `experience`, or `observation`, nor which graph connection or entity type is semantically correct. **It must not guess.** Auto-anchors therefore remain untyped.
 
-```text
-Why was refresh-token rotation split into two stages, and what alternatives were rejected?
+### Same-turn semantic notes
+
+When the current agent has already discovered a durable retrieval cue during normal reasoning, record it with `note`. This does not require another model call.
+
+Simple legacy-compatible note:
+
+```bash
+python3 memhooks_update.py note \
+  --cwd "$PWD" \
+  --query "Why was refresh-token rotation split into two stages?"
 ```
 
-The memory backend remains the source of the actual remembered facts. MemHooks only keeps the retrieval cue.
+Typed note when the classifications are genuinely known:
 
-For Hermes, `hooks/hermes/config.example.yaml` wires `event` to `post_tool_call`, while `pre_llm_call` performs deterministic loading. Other runtimes should map the same two lifecycle points to their native hook systems.
+```bash
+python3 memhooks_update.py note \
+  --cwd "$PWD" \
+  --query "Why did the authentication design change after the outage?" \
+  --memory-type experience \
+  --connection-type causal \
+  --connection-type temporal \
+  --entity 'Authentication' \
+  --entity '{"name":"OpenAI","type":"ORG"}'
+```
+
+Repeat `--memory-type`, `--connection-type`, and `--entity` as needed.
+
+The structured note is stored as routing metadata inside the MemHooks notes block. It is still **not the memory itself**.
 
 ## Creating or updating `MEMHOOKS.md`
 
-When asked to add MemHooks to a directory:
+When asked to add or refine MemHooks for a directory:
 
 1. Inspect what that folder/subsystem is responsible for.
 2. Identify the past context that would materially change future work there.
 3. Write **specific recall questions**, not broad topic labels.
-4. Add important named entities and useful backend-independent tags.
-5. Add known obsolete approaches to `exclude` when they are likely retrieval traps.
-6. Keep the file small. A hook file is a routing index, not memory content.
+4. Add `memory_types` only when the intended category is genuinely known.
+5. Add `connection_types` only when the retrieval relationship is genuinely known and useful.
+6. Add important named entities; add entity `type` only when known from the backend, user, or source data.
+7. Add existing mental models/Knowledge Pages when they are useful retrieval targets.
+8. Add known obsolete approaches to `exclude` when they are likely retrieval traps.
+9. Keep the file small. A hook file is a routing index, not memory content.
 
-Good:
-
-```yaml
-recall_queries:
-  - "Why did we choose a two-stage token refresh flow, and what alternatives were rejected?"
-  - "What production failures have involved refresh-token rotation?"
-```
-
-Weak:
-
-```yaml
-recall_queries:
-  - "authentication"
-  - "project memory"
-```
+Never manufacture classifications to make the YAML look complete.
 
 ## Adapting to an unlisted memory backend
 
 Do **not** require a bespoke MemHooks plugin.
 
-Use the bundled backend references as worked examples and determine the new system's closest equivalents for direct recall, deeper synthesis, entity-aware retrieval, metadata filters, temporal filters, hierarchical summaries, and namespaces.
+Use the bundled backend references as worked examples and determine the new system's closest equivalents for direct recall, deeper synthesis, memory categories, entity-aware retrieval, graph/relationship cues, metadata filters, temporal filters, hierarchical summaries, and namespaces.
 
 Then execute the hooks using those native operations.
 
@@ -189,11 +212,11 @@ If you have permission to improve this skill and the mapping is reusable, create
 
 ## Hard boundary: retrieval only
 
-`MEMHOOKS.md` must **not** itself trigger memory creation, retention, consolidation, deletion, or Knowledge Page generation.
+`MEMHOOKS.md` must **not** itself trigger memory creation, retention, consolidation, deletion, relationship rewriting, directive creation, mental-model creation, or Knowledge Page generation.
 
-Those belong to the memory system's normal lifecycle or a separate explicitly invoked dreaming/consolidation process.
+Those belong to the memory system's normal lifecycle or a separate explicitly invoked process.
 
-MemHooks may point at existing summaries or memories. It does not manufacture them.
+MemHooks may point at existing resources. It does not manufacture them.
 
 ## Failure behavior
 
@@ -214,5 +237,7 @@ Before acting on a MemHooks-enabled subtree, confirm that:
 - root-to-leaf inheritance was respected;
 - the current memory backend was identified;
 - listed queries were translated into native retrieval operations;
+- memory category, connection emphasis, and entity type were not conflated;
+- no semantic type was guessed merely to populate a field;
 - excluded/obsolete material was not injected as current context;
-- no memory was created or rewritten merely because MemHooks was loaded.
+- no memory or synthesized backend object was created or rewritten merely because MemHooks was loaded.
