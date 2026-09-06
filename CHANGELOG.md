@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.0 — 2026-09-07
+
+- Added first-class `memory_types` routing metadata with Hindsight-compatible `world`, `experience`, and `observation` categories.
+- Added `connection_types` routing hints for `semantic`, `temporal`, `entity`, and `causal` knowledge connections, kept explicitly separate from memory and entity types.
+- Added structured `recall_queries` that can carry query-local memory categories, connection emphasis, and entities.
+- Added typed entity routing with `{name, type}` while keeping legacy string entities valid.
+- Kept entity typing open rather than inventing a universal taxonomy: preserve explicit backend/user types; do not guess unknown types.
+- Added `mental_models` as a distinct higher-level retrieval target alongside `knowledge_pages`; neither is treated as a raw memory type.
+- Extended `memhooks_update.py note` with `--memory-type`, `--connection-type`, and repeatable `--entity` arguments.
+- Semantic notes are now stored as bounded JSON routing records so type metadata survives maintenance; old markdown bullet notes remain readable and migrate on the next write.
+- Clarified Hindsight's documented ontology: each selected memory type runs the full four-strategy recall pipeline independently.
+- Deterministic path auto-anchors remain intentionally untyped rather than guessing semantic classification without an LLM.
+
 ## 0.2.1 — 2026-08-30
 
 - Added the Hermes slash-command bootstrap `/memhooks init` for one-time per-project opt-in.
