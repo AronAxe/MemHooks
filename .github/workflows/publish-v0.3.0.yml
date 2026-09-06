@@ -1,0 +1,54 @@
+name: Publish MemHooks v0.3.0
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/publish-v0.3.0.yml
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create v0.3.0 release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CLEAN_TARGET: ${{ github.event.before }}
+        run: |
+          cat > /tmp/release-notes.md <<'EOF'
+          **MemHooks v0.3.0** adds typed memory-topology routing while keeping the convention small, retrieval-only, and backward-compatible.
+
+          ## Highlights
+
+          - Added first-class `memory_types` routing for Hindsight-compatible `world`, `experience`, and `observation` categories.
+          - Added separate `connection_types` hints for `semantic`, `temporal`, `entity`, and `causal` knowledge connections.
+          - Added structured `recall_queries` with query-local memory categories, connection emphasis, and entities.
+          - Added optional typed entities using `{name, type}` without inventing a universal entity taxonomy.
+          - Added `mental_models` as a distinct higher-level retrieval target alongside `knowledge_pages`.
+          - Extended `memhooks_update.py note` with `--memory-type`, `--connection-type`, and repeatable `--entity` arguments.
+          - Structured semantic notes now persist routing metadata as bounded JSON; legacy bullet notes remain readable and migrate on the next write.
+          - Deterministic path auto-anchors deliberately remain untyped rather than guessing semantic classifications.
+          - Updated the Hindsight mapping and README to keep memory categories, connection structure, entities, observations, mental models, documents, relationships, and directives conceptually separate.
+          - Added regression coverage for typed note persistence, enrichment, initialization, and legacy-note migration.
+
+          ## Compatibility
+
+          Existing string-only `recall_queries` and `entities` remain valid. MemHooks remains retrieval-only: it does not create, rewrite, consolidate, or delete backend memories merely because a hook is loaded.
+
+          See `CHANGELOG.md` and `references/memhooks-format.md` for the full v0.3.0 contract.
+          EOF
+
+          if gh release view v0.3.0 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release v0.3.0 already exists; nothing to do."
+            exit 0
+          fi
+
+          gh release create v0.3.0 \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$CLEAN_TARGET" \
+            --title "MemHooks v0.3.0" \
+            --notes-file /tmp/release-notes.md
