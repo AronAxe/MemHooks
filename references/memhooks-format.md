@@ -2,7 +2,7 @@
 
 A `MEMHOOKS.md` file is Markdown with YAML frontmatter. The frontmatter is retrieval-routing metadata. The body is optional human/agent-readable retrieval guidance.
 
-`memhooks/v1` is intentionally backward-compatible: existing string-only `recall_queries` and `entities` remain valid, while richer structured entries can add memory/fact types and entity types.
+`memhooks/v1` is intentionally backward-compatible. Existing string-only `recall_queries` and `entities` remain valid. Structured entries may additionally preserve memory type, connection emphasis, and typed entities when those are known.
 
 ## Canonical shape
 
@@ -13,38 +13,42 @@ bank: optional-memory-namespace
 scope: optional/human-readable/subsystem
 inherits: true
 
+# Optional memory categories. Omit/empty = search all relevant categories.
+# Hindsight: world | experience | observation
+memory_types: []
+
+# Optional connection emphasis for retrieval. Omit/empty = no preference.
+# Hindsight knowledge connections: semantic | temporal | entity | causal
+connection_types: []
+
+# Existing standing answers / synthesized resources worth reading first.
+mental_models: []
 knowledge_pages:
   - "Architecture/Authentication"
-
-# Optional scope-wide memory/fact-type hints. Empty means no type filter.
-memory_types:
-  - world
-  - experience
-  - observation
 
 recall_queries:
   # Legacy/simple form remains valid.
   - "What previous failures or rejected fixes involved token refresh?"
 
-  # Structured form attaches precise routing metadata to one query.
+  # Structured form keeps routing metadata with the query.
   - query: "Why was the current authentication architecture selected?"
     memory_types:
       - experience
+    connection_types:
+      - causal
+      - temporal
     entities:
-      - name: Authentication
-        type: COMPONENT
-      - name: Refresh Token
-        type: CONCEPT
+      - name: OpenAI
+        type: ORG
+      - Authentication
 
 entities:
-  # Legacy/simple form remains valid.
-  - OAuth
+  # Legacy/untyped form.
+  - Authentication
 
-  # Preferred typed form when the entity type is known.
-  - name: Authentication
-    type: COMPONENT
-  - name: Auth Service
-    type: SERVICE
+  # Typed form when the entity type is actually known.
+  - name: OpenAI
+    type: ORG
 
 tags:
   - project:example
@@ -63,6 +67,20 @@ Use direct recall for concrete decisions and incidents.
 Use deeper synthesis only when the retrieved memories conflict or the rationale remains unclear.
 ```
 
+## Ontology: keep the layers separate
+
+MemHooks should preserve the distinctions made by the attached memory backend rather than flattening them into one generic `type` field.
+
+For Hindsight in particular:
+
+1. **Memory categories**: `world`, `experience`, `observation`.
+2. **Knowledge connections**: entity, time-based/temporal, meaning-based/semantic, and causal connections.
+3. **Entities**: named things such as people, organizations, places, products, and concepts; an entity may have its own entity type.
+4. **Mental models / Knowledge Pages**: higher-level, precomputed standing answers or documents; they are not another raw-memory category.
+5. **Relationships/directives/documents**: backend-native bank data. MemHooks may route toward them when a dedicated field exists, but must not relabel them as memory or entity types.
+
+These dimensions are independent. A query can target an `experience`, emphasize `causal` and `temporal` connections, and mention a typed `PERSON` entity at the same time.
+
 ## Fields
 
 ### `schema`
@@ -78,13 +96,33 @@ Optional descriptive path/subsystem label. It is a hint, not authoritative files
 Optional memory namespace/bank/peer/session hint. Use it only when the current backend has an equivalent and access is appropriate.
 
 ### `memory_types`
-Optional backend-neutral memory/fact-type routing hints for this hook scope. An empty or omitted list means no type filtering.
+Optional memory-category routing hints for this hook scope. An empty or omitted list means no category restriction.
 
-When the backend supports native fact/source types, map these values to its closest native filters. For Hindsight the native recall values are `world`, `experience`, and `observation`.
+For Hindsight, the public Recall API accepts exactly these memory categories:
 
-Scope-wide `memory_types` are defaults. A structured `recall_queries` entry may supply its own `memory_types`; query-local values take priority for that query rather than being broadened by the scope-wide defaults.
+- `world` — facts about the outside world;
+- `experience` — the bank agent's own experiences/events/interactions;
+- `observation` — deduplicated, evidence-grounded beliefs consolidated from multiple memories.
 
-Do not invent a type merely to populate the field. If classification is genuinely ambiguous, omit it and let retrieval search across relevant types.
+Hindsight documents that **each selected memory type runs the full four-strategy retrieval pipeline independently**. Do not treat semantic/temporal/entity/causal as subtypes of `world`, `experience`, or `observation`.
+
+Scope-wide `memory_types` are defaults. A structured `recall_queries` entry may supply its own `memory_types`; query-local values take priority for that query.
+
+Do not guess merely to fill the field. If classification is ambiguous, omit it.
+
+### `connection_types`
+Optional routing hints describing which knowledge connections are especially relevant to the query:
+
+- `semantic` — meaning-based similarity;
+- `temporal` — time-based proximity/order;
+- `entity` — shared or connected entities;
+- `causal` — cause/effect relationships.
+
+These are **not memory types** and they are **not entity types**.
+
+For Hindsight, these four names mirror the documented connection classes used to organize memories. The public Recall API still runs its retrieval strategies together rather than exposing a simple `connection_types=` filter. Therefore a Hindsight adapter should use these values to sharpen the natural-language query, choose an appropriate retrieval depth, or use a backend-native control only when that control is actually exposed. Never invent an unsupported filter.
+
+A query-local `connection_types` list overrides the scope-wide default for that query.
 
 ### `recall_queries`
 The heart of MemHooks. Each entry should be a specific natural-language retrieval question whose answer would materially improve work in this directory.
@@ -98,47 +136,53 @@ Two forms are valid:
 # Structured form
 - query: "Why was the current token-refresh architecture selected?"
   memory_types: [experience]
+  connection_types: [causal, temporal]
   entities:
-    - name: Authentication
-      type: COMPONENT
+    - name: OpenAI
+      type: ORG
 ```
 
-Structured entries are preferred when the memory type or relevant typed entities are known. Query-local `entities` supplement the hook's top-level `entities` for that query.
+Structured entries are preferred when the routing metadata is known. Query-local entities supplement the hook's top-level entities for that query.
 
 Prefer `What architectural decisions govern this subsystem, and why were they made?` over a vague keyword such as `architecture`.
 
 ### `entities`
-Named people, projects, services, components, concepts, or other entities likely to improve recall precision. Backends with entity-aware retrieval may use them directly. Others can incorporate them into natural-language queries.
+Named entities likely to improve recall precision. Backends with entity-aware retrieval may use them directly. Others can incorporate them into natural-language queries.
 
 Both forms are valid:
 
 ```yaml
 entities:
   - Authentication
-  - name: Auth Service
-    type: SERVICE
+  - name: OpenAI
+    type: ORG
 ```
 
-A string entry is an untyped legacy entity. A mapping has:
+A string entry is an untyped entity. A mapping has:
 
 - `name` — required canonical/display name for retrieval;
-- `type` — optional semantic entity type.
+- `type` — optional entity type, **only when known**.
 
-Entity types are deliberately extensible rather than a closed enum. Use a backend-native type when one exists. Otherwise prefer a stable uppercase vocabulary. Recommended general/project types include:
+For Hindsight, explicit retain entities use `{text, type?}` and an omitted type defaults to `CONCEPT`. The public docs give `PERSON`, `ORG`, and `CONCEPT` as examples and separately describe automatic recognition of people, organizations, places, products, and concepts. Hindsight's API accepts the entity type as a string rather than publishing a closed enum.
 
-`PERSON`, `ORG`, `PLACE`, `PROJECT`, `PRODUCT`, `SOFTWARE`, `SERVICE`, `COMPONENT`, `API`, `REPOSITORY`, `FILE`, `DOCUMENT`, `DATASET`, `MODEL`, `TECHNOLOGY`, `EVENT`, `CONCEPT`, `DECISION`, `REQUIREMENT`, `CONSTRAINT`, and `ISSUE`.
+Therefore MemHooks does **not** invent a universal entity-type taxonomy. Preserve backend-native or user-defined type strings when supplied, and otherwise leave the entity untyped. A decision, requirement, constraint, failure, or other proposition should not be promoted to an entity merely to classify the memory containing it.
 
-Custom types are allowed when they materially improve graph precision. Do not create multiple near-synonyms (`APP`, `APPLICATION`, `SOFTWARE_APP`) unless the backend itself distinguishes them.
+Entity-to-entity relationship/edge types are a separate backend concern and are intentionally not defined by MemHooks v1.
 
-Entity **edge/relationship types are not defined by MemHooks v1**. They belong to the memory backend's graph model and are a separate concern from identifying the node/entity type used for retrieval.
+### `mental_models`
+Optional names/identifiers of existing standing answers that should be read before ordinary recall when the backend supports them.
+
+In Hindsight, a mental model is a deliberately curated, stored answer to a question about a bank. It sits above observations and raw facts in Reflect's retrieval ladder. Loading a MemHooks file never authorizes creation or rewriting of a mental model.
+
+### `knowledge_pages`
+Optional references to existing Knowledge Pages or equivalent stable synthesized documents.
+
+For Hindsight, Knowledge Pages are built on the mental-model layer. Treat them as retrieval targets, not raw memories and not entities.
+
+**Retrieval only.** Loading a MemHooks file never authorizes the agent to create, ensure, rewrite, refresh, or delete such pages.
 
 ### `tags`
 Optional tag/metadata hints. Use native filters when available; otherwise treat them as context for query construction.
-
-### `knowledge_pages`
-Optional references to existing curated summaries, mental models, project pages, or equivalent stable context.
-
-**Retrieval only.** Loading a MemHooks file never authorizes the agent to create, ensure, rewrite, refresh, or delete such pages.
 
 ### `exclude`
 Memories, approaches, entities, branches, or topics that should not be returned as current context for this subtree. This is intentionally first-class because obsolete but semantically similar memories can poison an otherwise good retrieval.
@@ -166,14 +210,17 @@ A runtime may maintain bounded retrieval cues in the Markdown body without rewri
   {
     "query": "Why was refresh-token rotation split into two stages?",
     "memory_types": ["experience"],
-    "entities": [{"name": "Authentication", "type": "COMPONENT"}]
+    "connection_types": ["causal", "temporal"],
+    "entities": [{"name": "OpenAI", "type": "ORG"}]
   }
 ]
 ```
 <!-- memhooks:notes:end -->
 ```
 
-`auto` contains deterministic path-scoped anchors generated from tool activity. `notes` contains concise future-retrieval questions recorded during the same turn in which a non-obvious decision/failure/constraint was discovered. The reference maintainer stores notes as a small JSON array so optional memory types and typed entities survive maintenance without a YAML dependency.
+`auto` contains deterministic path-scoped anchors generated from tool activity. Since zero-LLM path detection cannot reliably classify semantic memory metadata, auto anchors remain intentionally untyped.
+
+`notes` contains concise future-retrieval questions recorded during the same turn in which a non-obvious decision/failure/constraint was discovered. The reference maintainer stores notes as a small JSON array so optional memory categories, connection hints, and typed entities survive maintenance without requiring a YAML parser.
 
 These blocks are still **retrieval metadata, not memory content**. Implementations should preserve everything outside their own managed markers and keep the blocks bounded.
 
@@ -184,18 +231,18 @@ For the active directory:
 1. Find all `MEMHOOKS.md` files from workspace root to leaf.
 2. If a leafward file sets `inherits: false`, discard ancestors above that file.
 3. Merge remaining files root → leaf.
-4. Append list fields (`memory_types`, `recall_queries`, `entities`, `tags`, `knowledge_pages`, `exclude`) and de-duplicate exact duplicates.
-5. For a structured query, its own `memory_types` take priority over scope-wide `memory_types` for that query; its entities supplement the merged top-level entities.
+4. Append list fields (`memory_types`, `connection_types`, `recall_queries`, `entities`, `mental_models`, `knowledge_pages`, `tags`, `exclude`) and de-duplicate exact duplicates.
+5. For a structured query, query-local `memory_types` and `connection_types` take priority over scope-wide defaults; its entities supplement the merged top-level entities.
 6. For scalar fields (`bank`, `scope`, `sensitivity`), the most local value wins.
 7. Append free-form guidance root → leaf; local guidance has priority when instructions conflict.
 8. Treat machine-maintained body blocks exactly as local retrieval guidance; do not interpret them as durable memory facts.
 
 ## Maintenance principle
 
-The memory backend stores the actual event/decision/fact. `MEMHOOKS.md` stores only enough information to make a future agent realize **what it should ask memory about**, plus optional type information that makes that retrieval more precise.
+The memory backend stores the actual event/decision/fact. `MEMHOOKS.md` stores only enough information to make a future agent realize **what it should ask memory about**, plus optional routing metadata that makes that retrieval more precise.
 
 Prefer deterministic maintenance where possible. A separate LLM summarization pass should not be required merely to keep the routing file alive.
 
 ## Non-goals
 
-`MEMHOOKS.md` is not a memory database, hidden prompt dump, README replacement, memory-retention policy, dreaming/consolidation trigger, graph edge schema, or reason to retrieve everything remotely related to the task.
+`MEMHOOKS.md` is not a memory database, hidden prompt dump, README replacement, memory-retention policy, dreaming/consolidation trigger, entity-relationship schema, directive store, or reason to retrieve everything remotely related to the task.
