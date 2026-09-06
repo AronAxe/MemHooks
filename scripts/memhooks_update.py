@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """Zero-LLM MemHooks maintainer.
 
-Two jobs:
+Three jobs:
 
 1. ``event`` (default): consume a runtime hook event on stdin, extract touched
    project paths, and maintain a tiny auto-recall block in the nearest
    MEMHOOKS.md files. No model call is made.
 2. ``note``: add one explicit retrieval cue discovered by the *current* agent
-   while it is already reasoning. This costs no extra model call; it is just a
-   deterministic file edit.
+   while it is already reasoning. Optional memory categories, connection
+   emphasis, and typed entities can be preserved with the cue.
+3. ``init``: enable MemHooks at a repository root.
 
 The script never writes memory content. It writes retrieval cues only.
 """
@@ -32,6 +33,8 @@ NOTES_START = "<!-- memhooks:notes:start -->"
 NOTES_END = "<!-- memhooks:notes:end -->"
 MAX_AUTO_PATHS = int(os.getenv("MEMHOOKS_AUTO_PATHS", "12"))
 MAX_NOTES = int(os.getenv("MEMHOOKS_MAX_NOTES", "16"))
+VALID_MEMORY_TYPES = ("world", "experience", "observation")
+VALID_CONNECTION_TYPES = ("semantic", "temporal", "entity", "causal")
 SKIP_PARTS = {
     ".git", ".hg", ".svn", ".venv", "venv", "node_modules", "dist", "build",
     "__pycache__", ".idea", ".vscode", ".pytest_cache", ".mypy_cache",
@@ -150,7 +153,16 @@ def _ensure_base(path: Path) -> str:
     text = _read(path)
     if text.strip():
         return text
-    return "---\nschema: memhooks/v1\ninherits: true\n---\n\n# MemHooks\n"
+    return (
+        "---\n"
+        "schema: memhooks/v1\n"
+        "inherits: true\n"
+        "memory_types: []\n"
+        "connection_types: []\n"
+        "entities: []\n"
+        "---\n\n"
+        "# MemHooks\n"
+    )
 
 
 def _parse_auto_paths(text: str) -> list[str]:
@@ -168,10 +180,10 @@ def _auto_block(paths: list[str]) -> str:
         "Before substantive work here, recall prior **decisions, constraints, "
         "failures, fixes, rejected approaches, and unresolved issues** involving:\n"
         f"{listing}\n\n"
-        "These are retrieval cues, not memory contents. If this turn establishes a "
-        "durable non-obvious decision, failure, constraint, or rejected approach, "
-        "record one concise future-retrieval question with the MemHooks note helper "
-        "before finishing.\n"
+        "These are retrieval cues, not memory contents. This deterministic path "
+        "maintainer does not guess memory categories, connection emphasis, or "
+        "entity types. If this turn establishes a durable semantic cue, record it "
+        "with the MemHooks note helper before finishing.\n"
         f"{AUTO_END}"
     )
 
@@ -202,42 +214,181 @@ def _update_directory(root: Path, rel_files: Iterable[Path]) -> int:
     return writes
 
 
-def _notes_from(text: str) -> list[str]:
+def _normalize_note(value: Any) -> dict[str, Any] | None:
+    if isinstance(value, str):
+        query = " ".join(value.strip().split())
+        return {"query": query} if query else None
+    if not isinstance(value, dict):
+        return None
+
+    query = " ".join(str(value.get("query") or "").strip().split())
+    if not query:
+        return None
+
+    note: dict[str, Any] = {"query": query}
+
+    memory_types = [
+        str(v).strip().lower()
+        for v in (value.get("memory_types") or [])
+        if str(v).strip().lower() in VALID_MEMORY_TYPES
+    ]
+    if memory_types:
+        note["memory_types"] = list(dict.fromkeys(memory_types))
+
+    connection_types = [
+        str(v).strip().lower()
+        for v in (value.get("connection_types") or [])
+        if str(v).strip().lower() in VALID_CONNECTION_TYPES
+    ]
+    if connection_types:
+        note["connection_types"] = list(dict.fromkeys(connection_types))
+
+    entities: list[dict[str, str] | str] = []
+    for raw in value.get("entities") or []:
+        if isinstance(raw, str):
+            name = " ".join(raw.strip().split())
+            if name:
+                entities.append(name)
+        elif isinstance(raw, dict):
+            name = " ".join(str(raw.get("name") or "").strip().split())
+            if not name:
+                continue
+            entity: dict[str, str] = {"name": name}
+            entity_type = str(raw.get("type") or "").strip()
+            if entity_type:
+                entity["type"] = entity_type
+            entities.append(entity)
+    if entities:
+        note["entities"] = entities
+
+    return note
+
+
+def _notes_from(text: str) -> list[dict[str, Any]]:
     if NOTES_START not in text or NOTES_END not in text:
         return []
+
     body = text.split(NOTES_START, 1)[1].split(NOTES_END, 1)[0]
-    return [m.strip() for m in re.findall(r"^- (.+)$", body, flags=re.M)]
+
+    # New structured format: a fenced JSON array.
+    match = re.search(r"```json\s*(\[.*?\])\s*```", body, flags=re.S | re.I)
+    if match:
+        try:
+            raw = json.loads(match.group(1))
+        except Exception:
+            raw = []
+        notes = []
+        if isinstance(raw, list):
+            for item in raw:
+                note = _normalize_note(item)
+                if note is not None:
+                    notes.append(note)
+        return notes
+
+    # Backward compatibility with the old markdown bullet notes.
+    notes = []
+    for item in re.findall(r"^- (.+)$", body, flags=re.M):
+        note = _normalize_note(item)
+        if note is not None:
+            notes.append(note)
+    return notes
 
 
-def _notes_block(notes: list[str]) -> str:
-    listing = "\n".join(f"- {n}" for n in notes)
+def _notes_block(notes: list[dict[str, Any]]) -> str:
+    payload = json.dumps(notes, ensure_ascii=False, indent=2)
     return (
         f"{NOTES_START}\n"
         "## In-session retrieval cues\n\n"
-        f"{listing}\n\n"
-        "Keep these as questions/cues; durable facts belong in the memory backend.\n"
+        "```json\n"
+        f"{payload}\n"
+        "```\n\n"
+        "These are routing cues only. `memory_types` classify memories; "
+        "`connection_types` describe semantic/temporal/entity/causal emphasis; "
+        "entity `type` applies only to the entity itself. Durable facts belong "
+        "in the memory backend.\n"
         f"{NOTES_END}"
     )
 
 
-def add_note(cwd: Path, query: str) -> int:
+def _parse_entity_arg(raw: str) -> dict[str, str] | str:
+    raw = raw.strip()
+    if not raw:
+        raise ValueError("empty entity")
+
+    if raw.startswith("{"):
+        obj = json.loads(raw)
+        if not isinstance(obj, dict):
+            raise ValueError("entity JSON must be an object")
+        name = " ".join(str(obj.get("name") or obj.get("text") or "").strip().split())
+        if not name:
+            raise ValueError("entity JSON requires name/text")
+        entity: dict[str, str] = {"name": name}
+        entity_type = str(obj.get("type") or "").strip()
+        if entity_type:
+            entity["type"] = entity_type
+        return entity
+
+    return " ".join(raw.split())
+
+
+def add_note(
+    cwd: Path,
+    query: str,
+    memory_types: list[str] | None = None,
+    connection_types: list[str] | None = None,
+    entities: list[dict[str, str] | str] | None = None,
+) -> int:
     root = _nearest_enabled_root(cwd)
     if root is None:
         print("MemHooks is not enabled here (no ancestor MEMHOOKS.md).", file=sys.stderr)
         return 2
+
     query = " ".join(query.strip().split())
     if not query:
         return 2
+
     target_dir = next((d for d in (cwd, *cwd.parents) if (d / HOOK_FILENAME).is_file()), cwd)
     try:
         target_dir.relative_to(root)
     except ValueError:
         target_dir = root
+
     hook = target_dir / HOOK_FILENAME
     text = _ensure_base(hook)
     notes = _notes_from(text)
-    if query not in notes:
-        notes.append(query)
+
+    incoming = _normalize_note(
+        {
+            "query": query,
+            "memory_types": memory_types or [],
+            "connection_types": connection_types or [],
+            "entities": entities or [],
+        }
+    )
+    if incoming is None:
+        return 2
+
+    replaced = False
+    for i, existing in enumerate(notes):
+        if existing.get("query") != query:
+            continue
+        merged = dict(existing)
+        for key in ("memory_types", "connection_types", "entities"):
+            if key not in incoming:
+                continue
+            prior = list(merged.get(key) or [])
+            for item in incoming[key]:
+                if item not in prior:
+                    prior.append(item)
+            if prior:
+                merged[key] = prior
+        notes[i] = _normalize_note(merged) or incoming
+        replaced = True
+        break
+
+    if not replaced:
+        notes.append(incoming)
+
     notes = notes[-MAX_NOTES:]
     new = _replace_block(text, NOTES_START, NOTES_END, _notes_block(notes))
     if new != text:
@@ -255,14 +406,18 @@ def init(cwd: Path) -> int:
         "---\n"
         "schema: memhooks/v1\n"
         "inherits: true\n"
+        "memory_types: []\n"
+        "connection_types: []\n"
+        "entities: []\n"
         "---\n\n"
         "# MemHooks\n\n"
         f"Recall prior decisions, constraints, failures, fixes, rejected approaches, "
         f"and unresolved issues concerning the `{name}` project before making "
         "substantive changes.\n\n"
-        "If a turn establishes a durable non-obvious decision, failure, constraint, "
-        "or rejected approach, record one concise future-retrieval question with "
-        "the MemHooks note helper before finishing.\n",
+        "If a turn establishes a durable non-obvious retrieval cue, record one "
+        "concise future-retrieval question with the MemHooks note helper. Preserve "
+        "memory category, connection emphasis, and typed entities only when they "
+        "are actually known; do not guess.\n",
         encoding="utf-8",
     )
     return 0
@@ -289,18 +444,54 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Maintain MEMHOOKS.md with zero extra LLM calls.")
     sub = parser.add_subparsers(dest="cmd")
     sub.add_parser("event", help="read a hook event JSON object from stdin")
+
     p_init = sub.add_parser("init", help="enable MemHooks in this repository")
     p_init.add_argument("path", nargs="?", default=".")
+
     p_note = sub.add_parser("note", help="add one semantic retrieval cue")
     p_note.add_argument("--cwd", default=".")
     p_note.add_argument("--query", required=True)
+    p_note.add_argument(
+        "--memory-type",
+        action="append",
+        choices=VALID_MEMORY_TYPES,
+        default=[],
+        help="optional memory category; repeat as needed",
+    )
+    p_note.add_argument(
+        "--connection-type",
+        action="append",
+        choices=VALID_CONNECTION_TYPES,
+        default=[],
+        help="optional connection emphasis; repeat as needed",
+    )
+    p_note.add_argument(
+        "--entity",
+        action="append",
+        default=[],
+        help='optional entity name or JSON object, e.g. \'{"name":"OpenAI","type":"ORG"}\'',
+    )
 
     args = parser.parse_args()
     cmd = args.cmd or "event"
+
     if cmd == "init":
         return init(Path(args.path).expanduser().resolve())
+
     if cmd == "note":
-        return add_note(Path(args.cwd).expanduser().resolve(), args.query)
+        try:
+            entities = [_parse_entity_arg(raw) for raw in args.entity]
+        except (ValueError, json.JSONDecodeError) as exc:
+            print(f"Invalid --entity: {exc}", file=sys.stderr)
+            return 2
+        return add_note(
+            Path(args.cwd).expanduser().resolve(),
+            args.query,
+            memory_types=args.memory_type,
+            connection_types=args.connection_type,
+            entities=entities,
+        )
+
     try:
         payload = json.load(sys.stdin)
     except Exception:
