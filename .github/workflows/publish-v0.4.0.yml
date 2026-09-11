@@ -1,0 +1,55 @@
+name: Publish MemHooks v0.4.0
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/publish-v0.4.0.yml
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create v0.4.0 release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CLEAN_TARGET: ${{ github.event.before }}
+        run: |
+          cat > /tmp/release-notes.md <<'EOF'
+          **MemHooks v0.4.0** adds context-budget-aware retrieval, role routing, and a Rust reference parser/resolver/linter while remaining backward-compatible with `memhooks/v1`.
+
+          ## Highlights
+
+          - Added structured recall-query `priority` values from `0.0` to `1.0` for context-budget prioritization.
+          - Added structured entity `salience` values from `0.0` to `1.0`, explicitly separate from query priority and backend relevance/confidence.
+          - Added role-based query routing through extensible `when.roles` conditions with exact-match OR semantics when active roles are known.
+          - Kept legacy string-only recall queries/entities and unweighted structured entries valid under `memhooks/v1`.
+          - Added the reusable Rust reference library for parsing, root-to-leaf inheritance resolution, role filtering, and validation.
+          - Added `memhooks validate` with human, JSON, and SARIF output plus CI-friendly exit codes.
+          - Added `memhooks explain` to inspect effective inherited routing for a path and optional active roles.
+          - Extended `memhooks_update.py note` with `--priority`, repeatable `--role`, and entity `salience` support.
+          - Repeated semantic notes enrich role/type/entity metadata while a newly explicit priority replaces the previous explicit priority for that query.
+          - Added CI covering rustfmt, Clippy with warnings-as-errors, Rust tests, repository self-validation, and Python regression tests.
+          - Updated README, SKILL.md, the canonical template, format reference, and changelog.
+
+          ## Deliberately deferred
+
+          Dynamic command/context execution, prompt injection/privilege classes, branch/version applicability, and pre-warmer/daemon services remain outside v0.4.0 so the core protocol stays declarative and auditable.
+
+          See `CHANGELOG.md` and `references/memhooks-format.md` for the full contract.
+          EOF
+
+          if gh release view v0.4.0 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release v0.4.0 already exists; nothing to do."
+            exit 0
+          fi
+
+          gh release create v0.4.0 \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$CLEAN_TARGET" \
+            --title "MemHooks v0.4.0" \
+            --notes-file /tmp/release-notes.md
