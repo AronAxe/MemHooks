@@ -1,6 +1,7 @@
-use crate::model::{Entity, HookFrontmatter, RecallQuery};
+use crate::model::{BackendMap, Entity, HookFrontmatter, RecallQuery, Resource};
 use crate::parser::{parse_hook, ParseError, ParsedHook};
 use serde::{Deserialize, Serialize};
+use serde_yaml::Value;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
@@ -17,17 +18,14 @@ pub struct ResolvedHook {
     pub root: PathBuf,
     pub target: PathBuf,
     pub sources: Vec<PathBuf>,
-    pub bank: Option<String>,
     pub scope: Option<String>,
     pub sensitivity: Option<String>,
-    pub memory_types: Vec<String>,
-    pub connection_types: Vec<String>,
-    pub mental_models: Vec<String>,
-    pub knowledge_pages: Vec<String>,
     pub recall_queries: Vec<Sourced<RecallQuery>>,
     pub entities: Vec<Sourced<Entity>>,
+    pub resources: Vec<Sourced<Resource>>,
     pub tags: Vec<String>,
     pub exclude: Vec<String>,
+    pub backends: BackendMap,
     pub guidance: Vec<Sourced<String>>,
 }
 
@@ -37,9 +35,10 @@ pub struct EffectiveQuery {
     pub query: String,
     pub priority: Option<f64>,
     pub roles: Vec<String>,
-    pub memory_types: Vec<String>,
-    pub connection_types: Vec<String>,
     pub entities: Vec<Entity>,
+    pub resources: Vec<Resource>,
+    pub tags: Vec<String>,
+    pub backends: BackendMap,
 }
 
 impl ResolvedHook {
@@ -58,17 +57,6 @@ impl ResolvedHook {
                     return None;
                 }
 
-                let memory_types = if item.value.memory_types().is_empty() {
-                    self.memory_types.clone()
-                } else {
-                    item.value.memory_types().to_vec()
-                };
-                let connection_types = if item.value.connection_types().is_empty() {
-                    self.connection_types.clone()
-                } else {
-                    item.value.connection_types().to_vec()
-                };
-
                 let mut entities = self
                     .entities
                     .iter()
@@ -80,17 +68,62 @@ impl ResolvedHook {
                     }
                 }
 
+                let mut resources = self
+                    .resources
+                    .iter()
+                    .map(|resource| resource.value.clone())
+                    .collect::<Vec<_>>();
+                for resource in item.value.resources() {
+                    if !resources.contains(resource) {
+                        resources.push(resource.clone());
+                    }
+                }
+
+                let mut tags = self.tags.clone();
+                extend_unique_strings(&mut tags, item.value.tags().iter().cloned());
+
+                let mut backends = self.backends.clone();
+                merge_backend_maps(&mut backends, item.value.backends());
+
                 Some(EffectiveQuery {
                     source: item.source.clone(),
                     query: item.value.text().to_string(),
                     priority: item.value.priority(),
                     roles: roles.to_vec(),
-                    memory_types,
-                    connection_types,
                     entities,
+                    resources,
+                    tags,
+                    backends,
                 })
             })
             .collect()
+    }
+}
+
+pub fn merge_backend_maps(target: &mut BackendMap, overlay: &BackendMap) {
+    for (provider, value) in overlay {
+        match target.get_mut(provider) {
+            Some(existing) => merge_yaml_value(existing, value),
+            None => {
+                target.insert(provider.clone(), value.clone());
+            }
+        }
+    }
+}
+
+fn merge_yaml_value(target: &mut Value, overlay: &Value) {
+    match (target, overlay) {
+        (Value::Mapping(target_map), Value::Mapping(overlay_map)) => {
+            for (key, value) in overlay_map {
+                match target_map.get_mut(key) {
+                    Some(existing) => merge_yaml_value(existing, value),
+                    None => {
+                        target_map.insert(key.clone(), value.clone());
+                    }
+                }
+            }
+        }
+        (target, overlay) => *target = overlay.clone(),
     }
 }
 
@@ -177,24 +210,18 @@ fn directories_root_to_target(root: &Path, target: &Path) -> Vec<PathBuf> {
 
 fn merge_hook(resolved: &mut ResolvedHook, hook: &ParsedHook) {
     let HookFrontmatter {
-        bank,
         scope,
         sensitivity,
-        memory_types,
-        connection_types,
-        mental_models,
-        knowledge_pages,
         recall_queries,
         entities,
+        resources,
         tags,
         exclude,
+        backends,
         ..
     } = &hook.frontmatter;
 
     resolved.sources.push(hook.path.clone());
-    if bank.is_some() {
-        resolved.bank = bank.clone();
-    }
     if scope.is_some() {
         resolved.scope = scope.clone();
     }
@@ -202,18 +229,9 @@ fn merge_hook(resolved: &mut ResolvedHook, hook: &ParsedHook) {
         resolved.sensitivity = sensitivity.clone();
     }
 
-    extend_unique(&mut resolved.memory_types, memory_types.iter().cloned());
-    extend_unique(
-        &mut resolved.connection_types,
-        connection_types.iter().cloned(),
-    );
-    extend_unique(&mut resolved.mental_models, mental_models.iter().cloned());
-    extend_unique(
-        &mut resolved.knowledge_pages,
-        knowledge_pages.iter().cloned(),
-    );
-    extend_unique(&mut resolved.tags, tags.iter().cloned());
-    extend_unique(&mut resolved.exclude, exclude.iter().cloned());
+    extend_unique_strings(&mut resolved.tags, tags.iter().cloned());
+    extend_unique_strings(&mut resolved.exclude, exclude.iter().cloned());
+    merge_backend_maps(&mut resolved.backends, backends);
 
     for query in recall_queries {
         if !resolved
@@ -241,6 +259,19 @@ fn merge_hook(resolved: &mut ResolvedHook, hook: &ParsedHook) {
         }
     }
 
+    for resource in resources {
+        if !resolved
+            .resources
+            .iter()
+            .any(|existing| existing.value == *resource)
+        {
+            resolved.resources.push(Sourced {
+                source: hook.path.clone(),
+                value: resource.clone(),
+            });
+        }
+    }
+
     let body = hook.body.trim();
     if !body.is_empty() {
         resolved.guidance.push(Sourced {
@@ -250,7 +281,7 @@ fn merge_hook(resolved: &mut ResolvedHook, hook: &ParsedHook) {
     }
 }
 
-fn extend_unique(target: &mut Vec<String>, values: impl Iterator<Item = String>) {
+fn extend_unique_strings(target: &mut Vec<String>, values: impl Iterator<Item = String>) {
     let mut seen: HashSet<String> = target.iter().cloned().collect();
     for value in values {
         if seen.insert(value.clone()) {
