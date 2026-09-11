@@ -2,11 +2,14 @@
 
 ## 0.4.1 — 2026-09-11
 
+- Published `memhooks` 0.4.1 to crates.io and verified the public install path with `cargo install memhooks --version 0.4.1` plus an installed-binary version check.
 - Prepared the Rust reference implementation for publication on crates.io.
 - Added crates.io package metadata: homepage, docs.rs URL, README, keywords, categories, and a lean explicit package include set.
 - Added direct installation instructions for `cargo install memhooks` and `cargo add memhooks`.
 - Updated the README to explain the CLI/library split in plain language and to use package-safe absolute artwork URLs.
-- Added `cargo publish --dry-run` to CI so package contents and publishability are continuously verified.
+- Added a documentation index, quickstart, CLI reference, Rust API guide, agent integration guide, protocol guide, troubleshooting reference, and crates.io publishing guide under `docs/`.
+- Exposed the Rust library guide as crate-level Rustdoc so docs.rs receives a maintained landing page.
+- Added Rustdoc warnings-as-errors and `cargo publish --dry-run` to CI so documentation and package publishability are continuously verified.
 - Kept the MemHooks protocol itself unchanged: `memhooks/v1`, weighted retrieval, entity salience, role routing, inheritance, and runtime behavior are identical to v0.4.0.
 
 ## 0.4.0 — 2026-09-11
