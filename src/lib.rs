@@ -1,3 +1,5 @@
+#![doc = include_str!("../docs/rust-library.md")]
+
 pub mod model;
 pub mod parser;
 pub mod resolver;

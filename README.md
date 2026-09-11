@@ -52,6 +52,19 @@ recall the highest-value context that matters
 do the work
 ```
 
+## Documentation
+
+Start with the [documentation index](docs/README.md), or jump directly to:
+
+- [Quickstart](docs/quickstart.md)
+- [CLI reference](docs/cli.md)
+- [Rust library/API guide](docs/rust-library.md)
+- [Agent integration guide](docs/integrating-an-agent.md)
+- [Protocol guide](docs/protocol-guide.md)
+- [Troubleshooting](docs/troubleshooting.md)
+- [Crate publishing notes](docs/publishing.md)
+
+The normative format contract remains [`references/memhooks-format.md`](references/memhooks-format.md).
 ## Install the Rust tooling
 
 ### CLI
