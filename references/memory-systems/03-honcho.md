@@ -1,48 +1,121 @@
-# Honcho mapping
+# Honcho adapter mapping — memhooks/v2
 
-Use this mapping when the active memory backend is **Honcho** or Hermes exposes Honcho memory-provider tools.
+Use this reference when the active memory backend is **Honcho** or the runtime exposes Honcho-compatible memory-provider tools.
 
-In current Hermes integrations, Honcho provides tools similar to:
+Honcho-specific controls belong under:
 
-- `honcho_search` — semantic search over remembered context/conclusions
-- `honcho_context` — session summary, representation, card, recent messages
-- `honcho_reasoning` — synthesized/dialectic reasoning over memory
-- `honcho_profile` — peer card read/update
-- `honcho_conclude` — create/delete conclusions
+```yaml
+backends:
+  honcho:
+    ... Honcho/adapter-native controls ...
+```
 
-MemHooks is retrieval-only, so it should ordinarily use **search, context, and reasoning**, not profile updates or conclusion writes.
+The MemHooks core preserves the namespace without interpreting it.
 
-## Field mapping
+## Retrieval model
+
+Depending on the integration/version, Honcho may expose operations analogous to:
+
+- semantic memory search;
+- current session/peer context retrieval;
+- synthesized or dialectic reasoning over remembered context;
+- profile/conclusion write operations.
+
+MemHooks is retrieval-routing only. It should use read/search/reasoning capabilities when needed, not create conclusions or update profiles merely because a hook loaded.
+
+## Recommended adapter conventions
+
+A Honcho-aware adapter may use a provider namespace such as:
+
+```yaml
+backends:
+  honcho:
+    strategy: search
+    peer: project-agent
+    session: current-project
+```
+
+These are adapter conventions, not universal MemHooks fields and not guaranteed raw Honcho API parameter names. Use the actual controls exposed by the installed Honcho integration.
+
+Possible strategy hints:
+
+- `search` — direct retrieval for concrete prior context;
+- `context` — use an existing session/peer representation when it already contains what is needed;
+- `reasoning` — use Honcho's synthesis/dialectic capability when multiple memories must be reconciled.
+
+## Example
+
+```yaml
+schema: memhooks/v2
+
+recall_queries:
+  - query: "Why was the retry policy changed?"
+    priority: 0.9
+    entities: [RetryPolicy]
+    backends:
+      honcho:
+        strategy: reasoning
+
+backends:
+  honcho:
+    peer: project-agent
+```
+
+The query, priority, and entity are core MemHooks intent. `strategy` and `peer` are provider-specific.
+
+## Mapping generic MemHooks cues
 
 ### `recall_queries`
-Use `honcho_search` for concrete past context, decisions, events, excerpts, or conclusions. Use `honcho_reasoning` only when the hook calls for synthesis across remembered material or direct search returns conflicting fragments.
+
+Use direct Honcho search for concrete prior decisions, events, excerpts, or conclusions. Use reasoning only when synthesis materially helps.
 
 ### `entities`
-Include important names/components explicitly in the search or reasoning query. If the current Honcho version exposes metadata filters, use them where helpful.
+
+Include important names/components explicitly in search or reasoning. Use native metadata/entity filters only when the actual Honcho interface supports them.
+
+### `resources`
+
+Map generic resources to the nearest existing Honcho representation the runtime can actually retrieve: session context, peer representation, an existing conclusion, or another known resource. Retrieval does not imply creating or updating one.
 
 ### `tags`
-Use native filtering when available; otherwise treat tags as query hints.
 
-### `knowledge_pages`
-Map stable-context requests to the nearest existing Honcho representation: session context, peer/user representation, or searchable conclusions. Retrieve only; do not call `honcho_conclude` merely to satisfy a MemHooks file.
-
-### `bank`
-Respect the already configured Hermes/Honcho peer/session/project mapping. Do not remap or create a new session solely because a MemHooks `bank` value exists.
+Use native filters if exposed; otherwise treat tags as query hints.
 
 ### `exclude`
-Filter obsolete results before use and, where needed, phrase queries to distinguish current conclusions from rejected/old approaches.
 
-## Search vs reasoning
+Filter obsolete results before use and distinguish current conclusions from rejected/old approaches.
+
+### `priority` and salience
+
+Use them to choose which recall tasks/cues survive context pressure. Do not confuse them with Honcho-native relevance/confidence.
+
+## Search versus reasoning
+
+A reasonable adapter default:
 
 ```text
 "what happened / what did we decide / find context"
-    -> honcho_search
+    -> search
 
-"why / what pattern / reconcile memories"
-    -> honcho_reasoning
+"give me the mapped current context"
+    -> context
+
+"why / reconcile / synthesize remembered evidence"
+    -> reasoning
 ```
 
-`honcho_context` is useful when the hook concerns the current mapped session/project as a whole and that context already contains the required information.
+Provider strategy hints may override this when the actual tool supports the requested operation.
+
+## Provider namespace merging
+
+MemHooks performs structural merging only:
+
+- nested mappings recursively merge;
+- local scalar values replace parent values;
+- local lists replace parent lists;
+- query-local `backends.honcho` overlays scope-level Honcho configuration.
+
+The Honcho adapter interprets the final mapping.
 
 ## Sources
 
