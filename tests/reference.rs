@@ -174,17 +174,11 @@ recall_queries:
         .unwrap();
     let provider_json = serde_json::to_value(&query.backends).unwrap();
 
-    assert_eq!(
-        provider_json["mem0"]["filters"]["user_id"],
-        json!("alice")
-    );
+    assert_eq!(provider_json["mem0"]["filters"]["user_id"], json!("alice"));
     assert_eq!(provider_json["mem0"]["threshold"], json!(0.3));
     assert_eq!(provider_json["mem0"]["rerank"], json!(true));
     assert_eq!(provider_json["mem0"]["top_k"], json!(5));
-    assert_eq!(
-        provider_json["hindsight"]["bank"],
-        json!("project-memory")
-    );
+    assert_eq!(provider_json["hindsight"]["bank"], json!("project-memory"));
     assert_eq!(
         provider_json["hindsight"]["memory_types"],
         json!(["experience"])
