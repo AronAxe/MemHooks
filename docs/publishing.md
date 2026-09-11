@@ -4,13 +4,13 @@ This is maintainer documentation for publishing `memhooks` to crates.io.
 
 ## Current registry state
 
-MemHooks v0.4.1 is already published on crates.io. The repository has an authenticated crates.io publishing secret configured and every release candidate is package-tested with:
+MemHooks v0.5.0 is published on crates.io. The repository has an authenticated crates.io publishing secret configured and every release candidate is package-tested with:
 
 ```bash
 cargo publish --dry-run
 ```
 
-The first publication was also verified by installing the registry release and running the installed binary.
+The v0.5.0 publication was verified by installing `memhooks 0.5.0` from crates.io and running the installed binary.
 
 ## Before every release
 
