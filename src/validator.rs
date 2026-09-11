@@ -1,12 +1,18 @@
-use crate::model::{Entity, RecallQuery};
+use crate::model::{BackendMap, Entity, RecallQuery, Resource};
 use crate::parser::{parse_hook, ParseError, ParsedHook};
 use ignore::WalkBuilder;
 use serde::{Deserialize, Serialize};
+use serde_yaml::Value;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-const MEMORY_TYPES: &[&str] = &["world", "experience", "observation"];
-const CONNECTION_TYPES: &[&str] = &["semantic", "temporal", "entity", "causal"];
+const PROVIDER_SPECIFIC_V1_FIELDS: &[&str] = &[
+    "bank",
+    "memory_types",
+    "connection_types",
+    "mental_models",
+    "knowledge_pages",
+];
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -89,44 +95,42 @@ pub fn validate_parsed(parsed: &ParsedHook) -> Vec<Diagnostic> {
     let fm = &parsed.frontmatter;
 
     match fm.schema.as_deref() {
-        Some("memhooks/v1") => {}
+        Some("memhooks/v2") => {}
         Some(other) => diagnostics.push(Diagnostic::error(
             "MH001",
             parsed,
-            format!("unsupported schema `{other}`; expected `memhooks/v1`"),
+            format!("unsupported schema `{other}`; expected `memhooks/v2`"),
             Some("schema"),
         )),
         None => diagnostics.push(Diagnostic::error(
             "MH001",
             parsed,
-            "missing required `schema: memhooks/v1`",
+            "missing required `schema: memhooks/v2`",
             Some("schema"),
         )),
     }
 
     for key in fm.extra.keys() {
-        diagnostics.push(Diagnostic::warning(
-            "MH002",
-            parsed,
-            format!("unknown top-level field `{key}`"),
-            Some(key),
-        ));
+        if PROVIDER_SPECIFIC_V1_FIELDS.contains(&key.as_str()) {
+            diagnostics.push(Diagnostic::error(
+                "MH016",
+                parsed,
+                format!(
+                    "provider-specific field `{key}` is not part of the memhooks/v2 core; place provider-native controls under `backends.<provider>`"
+                ),
+                Some(key),
+            ));
+        } else {
+            diagnostics.push(Diagnostic::warning(
+                "MH002",
+                parsed,
+                format!("unknown top-level field `{key}`"),
+                Some(key),
+            ));
+        }
     }
 
-    validate_enum_list(
-        parsed,
-        "memory_types",
-        &fm.memory_types,
-        MEMORY_TYPES,
-        &mut diagnostics,
-    );
-    validate_enum_list(
-        parsed,
-        "connection_types",
-        &fm.connection_types,
-        CONNECTION_TYPES,
-        &mut diagnostics,
-    );
+    validate_backends(parsed, "backends", &fm.backends, &mut diagnostics);
 
     let mut query_keys = HashSet::new();
     for query in &fm.recall_queries {
@@ -152,6 +156,20 @@ pub fn validate_parsed(parsed: &ParsedHook) -> Vec<Diagnostic> {
                 parsed,
                 format!("duplicate top-level entity `{key}`"),
                 Some("entities"),
+            ));
+        }
+    }
+
+    let mut resource_keys = HashSet::new();
+    for resource in &fm.resources {
+        validate_resource(parsed, resource, &mut diagnostics);
+        let key = resource.name().trim().to_string();
+        if !key.is_empty() && !resource_keys.insert(key.clone()) {
+            diagnostics.push(Diagnostic::warning(
+                "MH015",
+                parsed,
+                format!("duplicate top-level resource `{key}`"),
+                Some("resources"),
             ));
         }
     }
@@ -241,12 +259,23 @@ fn validate_query(parsed: &ParsedHook, query: &RecallQuery, diagnostics: &mut Ve
 
     if let RecallQuery::Structured(value) = query {
         for key in value.extra.keys() {
-            diagnostics.push(Diagnostic::warning(
-                "MH005",
-                parsed,
-                format!("unknown recall-query field `{key}`"),
-                Some(key),
-            ));
+            if PROVIDER_SPECIFIC_V1_FIELDS.contains(&key.as_str()) {
+                diagnostics.push(Diagnostic::error(
+                    "MH017",
+                    parsed,
+                    format!(
+                        "provider-specific query field `{key}` is not part of the memhooks/v2 core; place it under `backends.<provider>`"
+                    ),
+                    Some(key),
+                ));
+            } else {
+                diagnostics.push(Diagnostic::warning(
+                    "MH005",
+                    parsed,
+                    format!("unknown recall-query field `{key}`"),
+                    Some(key),
+                ));
+            }
         }
         if let Some(when) = &value.when {
             for role in &when.roles {
@@ -268,23 +297,13 @@ fn validate_query(parsed: &ParsedHook, query: &RecallQuery, diagnostics: &mut Ve
                 ));
             }
         }
-        validate_enum_list(
-            parsed,
-            "memory_types",
-            &value.memory_types,
-            MEMORY_TYPES,
-            diagnostics,
-        );
-        validate_enum_list(
-            parsed,
-            "connection_types",
-            &value.connection_types,
-            CONNECTION_TYPES,
-            diagnostics,
-        );
         for entity in &value.entities {
             validate_entity(parsed, entity, diagnostics);
         }
+        for resource in &value.resources {
+            validate_resource(parsed, resource, diagnostics);
+        }
+        validate_backends(parsed, "backends", &value.backends, diagnostics);
     }
 }
 
@@ -319,22 +338,57 @@ fn validate_entity(parsed: &ParsedHook, entity: &Entity, diagnostics: &mut Vec<D
     }
 }
 
-fn validate_enum_list(
+fn validate_resource(parsed: &ParsedHook, resource: &Resource, diagnostics: &mut Vec<Diagnostic>) {
+    if resource.name().trim().is_empty() {
+        diagnostics.push(Diagnostic::error(
+            "MH020",
+            parsed,
+            "resource name must not be empty",
+            Some("resources"),
+        ));
+    }
+    if let Some(salience) = resource.salience() {
+        if !(0.0..=1.0).contains(&salience) || !salience.is_finite() {
+            diagnostics.push(Diagnostic::error(
+                "MH021",
+                parsed,
+                format!("resource salience must be between 0.0 and 1.0; got {salience}"),
+                Some("salience"),
+            ));
+        }
+    }
+    if let Resource::Structured(value) = resource {
+        for key in value.extra.keys() {
+            diagnostics.push(Diagnostic::warning(
+                "MH022",
+                parsed,
+                format!("unknown resource field `{key}`"),
+                Some(key),
+            ));
+        }
+    }
+}
+
+fn validate_backends(
     parsed: &ParsedHook,
     field: &str,
-    values: &[String],
-    allowed: &[&str],
+    backends: &BackendMap,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    for value in values {
-        if !allowed.contains(&value.as_str()) {
+    for (provider, config) in backends {
+        if provider.trim().is_empty() {
             diagnostics.push(Diagnostic::error(
-                "MH015",
+                "MH018",
                 parsed,
-                format!(
-                    "invalid {field} value `{value}`; expected one of {}",
-                    allowed.join(", ")
-                ),
+                "backend namespace names must not be empty",
+                Some(field),
+            ));
+        }
+        if !matches!(config, Value::Mapping(_)) {
+            diagnostics.push(Diagnostic::error(
+                "MH019",
+                parsed,
+                format!("backend namespace `{provider}` must contain a mapping/object"),
                 Some(field),
             ));
         }
