@@ -4,15 +4,15 @@ This is maintainer documentation for publishing `memhooks` to crates.io.
 
 ## Current state
 
-MemHooks v0.4.1 is package-tested and passes:
+MemHooks v0.4.1 is published on crates.io. The package is continuously checked with:
 
 ```bash
 cargo publish --dry-run
 ```
 
-The first real crates.io upload is still waiting for the crate owner's one-time registry authentication.
+The v0.4.1 publication was also verified by installing the registry release with `cargo install memhooks --version 0.4.1` and running the installed binary.
 
-## First publication
+## First publication (completed for v0.4.1)
 
 1. Sign in to crates.io with the owning GitHub account.
 2. Verify the crates.io account email if required.
@@ -24,7 +24,7 @@ The first real crates.io upload is still waiting for the crate owner's one-time 
    ```
 
 5. Put the crates.io token in that secret. Never commit it to the repository.
-6. Rerun the prepared v0.4.1 publishing workflow or run locally:
+6. Publish with the prepared workflow or run locally:
 
    ```bash
    cargo publish
