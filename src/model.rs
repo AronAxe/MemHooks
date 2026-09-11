@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 use std::collections::BTreeMap;
 
+pub type BackendMap = BTreeMap<String, Value>;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(untagged)]
 pub enum RecallQuery {
@@ -35,24 +37,32 @@ impl RecallQuery {
         }
     }
 
-    pub fn memory_types(&self) -> &[String] {
-        match self {
-            Self::Simple(_) => &[],
-            Self::Structured(value) => &value.memory_types,
-        }
-    }
-
-    pub fn connection_types(&self) -> &[String] {
-        match self {
-            Self::Simple(_) => &[],
-            Self::Structured(value) => &value.connection_types,
-        }
-    }
-
     pub fn entities(&self) -> &[Entity] {
         match self {
             Self::Simple(_) => &[],
             Self::Structured(value) => &value.entities,
+        }
+    }
+
+    pub fn resources(&self) -> &[Resource] {
+        match self {
+            Self::Simple(_) => &[],
+            Self::Structured(value) => &value.resources,
+        }
+    }
+
+    pub fn tags(&self) -> &[String] {
+        match self {
+            Self::Simple(_) => &[],
+            Self::Structured(value) => &value.tags,
+        }
+    }
+
+    pub fn backends(&self) -> &BackendMap {
+        static EMPTY: std::sync::OnceLock<BackendMap> = std::sync::OnceLock::new();
+        match self {
+            Self::Simple(_) => EMPTY.get_or_init(BackendMap::new),
+            Self::Structured(value) => &value.backends,
         }
     }
 }
@@ -65,11 +75,13 @@ pub struct StructuredRecallQuery {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub when: Option<QueryCondition>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub memory_types: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub connection_types: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub entities: Vec<Entity>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub resources: Vec<Resource>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub backends: BackendMap,
     #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: BTreeMap<String, Value>,
 }
@@ -116,34 +128,62 @@ pub struct StructuredEntity {
     pub extra: BTreeMap<String, Value>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(untagged)]
+pub enum Resource {
+    Simple(String),
+    Structured(StructuredResource),
+}
+
+impl Resource {
+    pub fn name(&self) -> &str {
+        match self {
+            Self::Simple(value) => value,
+            Self::Structured(value) => &value.name,
+        }
+    }
+
+    pub fn salience(&self) -> Option<f64> {
+        match self {
+            Self::Simple(_) => None,
+            Self::Structured(value) => value.salience,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct StructuredResource {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub salience: Option<f64>,
+    #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra: BTreeMap<String, Value>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct HookFrontmatter {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub schema: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub bank: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scope: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inherits: Option<bool>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub memory_types: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub connection_types: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub mental_models: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub knowledge_pages: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub recall_queries: Vec<RecallQuery>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub entities: Vec<Entity>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub resources: Vec<Resource>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub exclude: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sensitivity: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub backends: BackendMap,
     #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: BTreeMap<String, Value>,
 }

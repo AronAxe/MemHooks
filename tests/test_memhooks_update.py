@@ -15,24 +15,30 @@ def run_cli(*args, cwd=None):
     )
 
 
-def test_init_seeds_typed_routing_fields(tmp_path):
+def make_repo(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
     subprocess.run(["git", "init"], cwd=repo, capture_output=True, check=True)
+    return repo
+
+
+def test_init_seeds_backend_neutral_v2_fields(tmp_path):
+    repo = make_repo(tmp_path)
 
     result = run_cli("init", str(repo))
     assert result.returncode == 0
 
     text = (repo / "MEMHOOKS.md").read_text(encoding="utf-8")
-    assert "memory_types: []" in text
-    assert "connection_types: []" in text
+    assert "schema: memhooks/v2" in text
     assert "entities: []" in text
+    assert "resources: []" in text
+    assert "backends: {}" in text
+    assert "memory_types" not in text
+    assert "connection_types" not in text
 
 
-def test_note_persists_memory_connection_and_entity_types(tmp_path):
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    subprocess.run(["git", "init"], cwd=repo, capture_output=True, check=True)
+def test_note_persists_generic_cues_and_opaque_backend_namespaces(tmp_path):
+    repo = make_repo(tmp_path)
     assert run_cli("init", str(repo)).returncode == 0
 
     result = run_cli(
@@ -41,34 +47,33 @@ def test_note_persists_memory_connection_and_entity_types(tmp_path):
         str(repo),
         "--query",
         "Why did auth change after the outage?",
-        "--memory-type",
-        "experience",
-        "--connection-type",
-        "causal",
-        "--connection-type",
-        "temporal",
         "--entity",
         "Authentication",
-        "--entity",
-        '{"name":"OpenAI","type":"ORG"}',
+        "--resource",
+        '{"name":"auth-design","kind":"architecture-note","salience":0.8}',
+        "--tag",
+        "security",
+        "--backends",
+        '{"hindsight":{"memory_types":["experience"],"connection_types":["causal","temporal"]},"mem0":{"top_k":8,"rerank":true}}',
     )
     assert result.returncode == 0
 
     text = (repo / "MEMHOOKS.md").read_text(encoding="utf-8")
+    assert '"Authentication"' in text
+    assert '"resources": [' in text
+    assert '"auth-design"' in text
+    assert '"kind": "architecture-note"' in text
+    assert '"security"' in text
+    assert '"hindsight": {' in text
     assert '"memory_types": [' in text
     assert '"experience"' in text
-    assert '"connection_types": [' in text
-    assert '"causal"' in text
-    assert '"temporal"' in text
-    assert '"name": "OpenAI"' in text
-    assert '"type": "ORG"' in text
-    assert '"Authentication"' in text
+    assert '"mem0": {' in text
+    assert '"top_k": 8' in text
+    assert '"rerank": true' in text
 
 
 def test_note_persists_priority_roles_and_entity_salience(tmp_path):
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    subprocess.run(["git", "init"], cwd=repo, capture_output=True, check=True)
+    repo = make_repo(tmp_path)
     assert run_cli("init", str(repo)).returncode == 0
 
     result = run_cli(
@@ -96,10 +101,8 @@ def test_note_persists_priority_roles_and_entity_salience(tmp_path):
     assert '"salience": 0.95' in text
 
 
-def test_repeated_note_enriches_instead_of_erasing_metadata(tmp_path):
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    subprocess.run(["git", "init"], cwd=repo, capture_output=True, check=True)
+def test_repeated_note_enriches_generic_and_backend_metadata(tmp_path):
+    repo = make_repo(tmp_path)
     assert run_cli("init", str(repo)).returncode == 0
 
     query = "Why did auth change?"
@@ -113,10 +116,10 @@ def test_repeated_note_enriches_instead_of_erasing_metadata(tmp_path):
         "0.7",
         "--role",
         "reviewer",
-        "--memory-type",
-        "experience",
-        "--connection-type",
-        "causal",
+        "--tag",
+        "auth",
+        "--backends",
+        '{"mem0":{"filters":{"user_id":"alice"},"threshold":0.2}}',
     ).returncode == 0
 
     assert run_cli(
@@ -129,27 +132,33 @@ def test_repeated_note_enriches_instead_of_erasing_metadata(tmp_path):
         "0.9",
         "--role",
         "architect",
-        "--connection-type",
-        "temporal",
         "--entity",
         '{"name":"OpenAI","type":"ORG","salience":0.8}',
+        "--resource",
+        "auth-postmortem",
+        "--backends",
+        '{"mem0":{"rerank":true,"top_k":5},"hindsight":{"memory_types":["experience"]}}',
     ).returncode == 0
 
     text = (repo / "MEMHOOKS.md").read_text(encoding="utf-8")
     assert '"priority": 0.9' in text
     assert '"reviewer"' in text
     assert '"architect"' in text
+    assert '"auth"' in text
+    assert '"filters": {' in text
+    assert '"user_id": "alice"' in text
+    assert '"threshold": 0.2' in text
+    assert '"rerank": true' in text
+    assert '"top_k": 5' in text
+    assert '"hindsight": {' in text
     assert '"experience"' in text
-    assert '"causal"' in text
-    assert '"temporal"' in text
     assert '"type": "ORG"' in text
     assert '"salience": 0.8' in text
+    assert '"auth-postmortem"' in text
 
 
-def test_invalid_priority_and_salience_are_rejected(tmp_path):
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    subprocess.run(["git", "init"], cwd=repo, capture_output=True, check=True)
+def test_invalid_priority_salience_and_backend_shape_are_rejected(tmp_path):
+    repo = make_repo(tmp_path)
     assert run_cli("init", str(repo)).returncode == 0
 
     bad_priority = run_cli(
@@ -163,26 +172,48 @@ def test_invalid_priority_and_salience_are_rejected(tmp_path):
     )
     assert bad_priority.returncode != 0
 
-    bad_salience = run_cli(
+    bad_entity_salience = run_cli(
         "note",
         "--cwd",
         str(repo),
         "--query",
-        "bad salience",
+        "bad entity salience",
         "--entity",
         '{"name":"OpenAI","salience":-0.1}',
     )
-    assert bad_salience.returncode != 0
-    assert "salience" in bad_salience.stderr.lower()
+    assert bad_entity_salience.returncode != 0
+    assert "salience" in bad_entity_salience.stderr.lower()
+
+    bad_resource_salience = run_cli(
+        "note",
+        "--cwd",
+        str(repo),
+        "--query",
+        "bad resource salience",
+        "--resource",
+        '{"name":"design","salience":1.2}',
+    )
+    assert bad_resource_salience.returncode != 0
+    assert "salience" in bad_resource_salience.stderr.lower()
+
+    bad_backends = run_cli(
+        "note",
+        "--cwd",
+        str(repo),
+        "--query",
+        "bad backend shape",
+        "--backends",
+        '{"mem0":"not-an-object"}',
+    )
+    assert bad_backends.returncode != 0
+    assert "backend" in bad_backends.stderr.lower()
 
 
-def test_legacy_bullet_notes_migrate_to_structured_json(tmp_path):
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    subprocess.run(["git", "init"], cwd=repo, capture_output=True, check=True)
+def test_markdown_bullet_notes_are_normalized_to_structured_json(tmp_path):
+    repo = make_repo(tmp_path)
     (repo / "MEMHOOKS.md").write_text(
         """---
-schema: memhooks/v1
+schema: memhooks/v2
 inherits: true
 ---
 
@@ -191,7 +222,7 @@ inherits: true
 
 - Why did the old approach fail?
 
-Keep these as questions/cues; durable facts belong in the memory backend.
+Durable facts belong in the memory backend.
 <!-- memhooks:notes:end -->
 """,
         encoding="utf-8",
@@ -203,8 +234,8 @@ Keep these as questions/cues; durable facts belong in the memory backend.
         str(repo),
         "--query",
         "What replaced the old approach?",
-        "--memory-type",
-        "world",
+        "--tag",
+        "architecture",
     )
     assert result.returncode == 0
 
@@ -212,4 +243,4 @@ Keep these as questions/cues; durable facts belong in the memory backend.
     assert "```json" in text
     assert '"query": "Why did the old approach fail?"' in text
     assert '"query": "What replaced the old approach?"' in text
-    assert '"world"' in text
+    assert '"architecture"' in text

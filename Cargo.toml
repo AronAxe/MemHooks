@@ -1,9 +1,9 @@
 [package]
 name = "memhooks"
-version = "0.4.1"
+version = "0.5.0"
 edition = "2021"
 rust-version = "1.78"
-description = "Reference parser, resolver, validator, and CLI for filesystem-scoped AI agent memory routing"
+description = "Backend-neutral parser, resolver, validator, and CLI for filesystem-scoped AI agent memory routing"
 license = "MIT"
 repository = "https://github.com/AronAxe/MemHooks"
 homepage = "https://github.com/AronAxe/MemHooks"

@@ -1,181 +1,212 @@
-# Hindsight mapping
+# Hindsight adapter mapping — memhooks/v2
 
-Use this mapping when the active memory backend is **Hindsight** (Vectorize) or Hermes exposes Hindsight memory tools.
+Use this reference when the active memory backend is **Hindsight** (Vectorize) or the runtime exposes Hindsight-compatible memory tools.
 
-Hindsight's core operations are:
+In `memhooks/v2`, Hindsight vocabulary is **provider-native**, not part of the MemHooks core.
 
-- **Recall** — retrieves ranked memories using semantic, keyword/BM25, graph, and temporal strategies.
-- **Reflect** — reasons over memories and synthesized knowledge; slower and more expensive than direct recall.
-- **Retain** — writes memory. **MemHooks does not call this merely because a hook was loaded.**
+```yaml
+backends:
+  hindsight:
+    ... Hindsight-specific controls ...
+```
 
-## Hindsight's ontology
+The Rust core preserves and structurally merges this mapping but does not interpret it.
 
-Keep these layers separate:
+## Hindsight operations
+
+Hindsight's main memory operations include:
+
+- **Recall** — direct ranked retrieval;
+- **Reflect** — deeper reasoning/synthesis over stored knowledge;
+- **Retain** — memory writing.
+
+MemHooks is retrieval-routing infrastructure. Loading a hook must not call Retain merely because retrieval metadata exists.
+
+## Recommended namespace conventions
+
+A Hindsight-aware adapter may interpret these keys under `backends.hindsight`:
+
+| Key | Meaning |
+|---|---|
+| `bank` | target Hindsight memory bank/namespace when the runtime exposes banks |
+| `memory_types` | Hindsight memory categories such as `world`, `experience`, `observation` |
+| `connection_types` | retrieval emphasis such as `semantic`, `temporal`, `entity`, `causal` |
+| `strategy` | adapter retrieval strategy hint such as `recall`, `reflect`, or `auto` |
+| `mental_models` | existing Hindsight Mental Models worth consulting |
+| `knowledge_pages` | existing Hindsight Knowledge Pages worth consulting |
+
+These keys are an **adapter convention**, not universal MemHooks fields. The generic validator intentionally does not validate their internal values.
+
+## Example
+
+```yaml
+schema: memhooks/v2
+
+recall_queries:
+  - query: "Why did authentication change after the outage?"
+    priority: 1.0
+    entities:
+      - Authentication
+    backends:
+      hindsight:
+        memory_types: [experience]
+        connection_types: [causal, temporal]
+        strategy: reflect
+
+backends:
+  hindsight:
+    bank: project-memory
+    mental_models:
+      - authentication architecture
+```
+
+The query, priority, and entity are backend-neutral. Everything inside `backends.hindsight` is Hindsight-specific.
+
+## Hindsight ontology
 
 ### Memory categories
 
-Hindsight Recall accepts exactly:
+Hindsight distinguishes:
 
-- `world` — objective facts about the outside world;
-- `experience` — events, conversations, and the bank agent's own experiences;
-- `observation` — deduplicated, evidence-grounded beliefs consolidated from multiple memories.
+- `world` — facts about the outside world;
+- `experience` — events/conversations/experiences from the bank agent's perspective;
+- `observation` — consolidated evidence-backed beliefs.
 
-A key detail from Hindsight's public Recall API: **each selected memory type runs the full four-strategy retrieval pipeline independently**. `world`, `experience`, and `observation` are therefore parallel memory categories, not containers for different retrieval/link mechanisms.
+These belong under:
+
+```yaml
+backends:
+  hindsight:
+    memory_types: [world, experience, observation]
+```
+
+or under a structured query's `backends.hindsight` mapping.
+
+They must **not** appear as top-level MemHooks v2 fields.
 
 ### Knowledge connections
 
-Hindsight documents four kinds of connections between memories:
+Hindsight knowledge can be connected semantically, temporally, through entities, and causally.
 
-- **entity** connections — facts linked through shared entities;
-- **temporal** connections — time-based proximity/order;
-- **semantic** connections — meaning-based similarity;
-- **causal** connections — cause/effect structure.
+A v2 adapter may preserve emphasis as:
 
-These are not memory categories and are not entity types.
+```yaml
+backends:
+  hindsight:
+    connection_types: [semantic, temporal, entity, causal]
+```
 
-The public Recall API itself runs four retrieval strategies in parallel: semantic similarity, keyword/BM25, graph traversal, and temporal retrieval. Its graph traversal uses entity/temporal/causal structure. Do not pretend a public `connection_types=` filter exists when it does not.
+Do not invent a public Hindsight API parameter when the actual wrapper does not expose one. When no native control exists, use the hint to sharpen the natural-language query or choose an appropriate retrieval path.
 
 ### Entities
 
-Hindsight entities are named things extracted from or attached to memories. The public docs describe people, organizations, places, products, and concepts. Explicit retain entities use the shape `{text, type?}`; examples include `PERSON`, `ORG`, and `CONCEPT`, and an omitted type defaults to `CONCEPT`.
+MemHooks core entities remain generic:
 
-The entity `type` field is a string rather than a documented closed enum. MemHooks should therefore preserve an explicit backend/user-provided type when one exists, but must **not guess or invent a universal type taxonomy**. If the type is unclear, keep the entity untyped.
+```yaml
+entities:
+  - name: OpenAI
+    type: ORG
+    salience: 0.9
+```
 
-A proposition such as a decision, constraint, requirement, failure, or conclusion is not automatically an entity. It normally remains information *about* entities unless Hindsight/the user has explicitly modeled it as one.
-
-Entity-to-entity relationships are a separate part of the Hindsight bank and are not defined by MemHooks v1.
+A Hindsight adapter may map `name` to Hindsight's entity text and preserve an explicit type when appropriate. Do not guess entity types merely to populate metadata.
 
 ### Observations
 
-Observations are produced automatically by consolidation after raw facts are retained. They are evidence-backed beliefs, each grounded in supporting memories and refined as evidence changes. `observation` is a valid Recall `types` value even though it is not directly written as a raw retained fact.
+Observations are Hindsight-native consolidated beliefs. They remain a Hindsight memory category, not a universal MemHooks concept.
 
-### Mental models and Knowledge Pages
+### Mental Models and Knowledge Pages
 
-A mental model is a deliberately curated, stored standing answer to a question about a bank. Hindsight's Reflect retrieval ladder is:
+Mental Models and Knowledge Pages are Hindsight-native synthesized resources.
 
-1. mental models;
-2. observations;
-3. raw facts.
+Name them explicitly when the adapter should consult them:
 
-Knowledge Pages use the mental-model layer to expose living documents. They are higher-level synthesized retrieval targets, not another value of Recall `types` and not entities.
-
-### Documents, relationships, directives
-
-A Hindsight bank also contains documents, relationships, and directives. These remain backend-native bank data:
-
-- documents are indexed source content;
-- relationships connect entities in the knowledge graph;
-- directives are hard rules applied during Reflect.
-
-MemHooks should not relabel any of these as a memory type or entity type.
-
-## Field mapping
-
-### `memory_types`
-
-Map MemHooks `memory_types` directly to Hindsight Recall/Reflect `types` when the active tool exposes that parameter.
-
-Valid Hindsight values:
-
-```text
-world | experience | observation
+```yaml
+backends:
+  hindsight:
+    mental_models:
+      - authentication architecture
+    knowledge_pages:
+      - Architecture/Authentication
 ```
 
-If a structured MemHooks query has query-local `memory_types`, use those. Otherwise use the merged scope-wide default. If neither is present, omit the filter so all relevant Hindsight memory categories can be searched.
+Do not create or refresh either resource merely because it is referenced by MemHooks.
 
-Perspective still matters when interpreting `world` versus `experience`: a user's first-person statement is ordinarily a world fact about the user; the bank agent's own action is an experience.
+The generic MemHooks `resources` field may also name an existing resource when its provider type is not important to the core. Use the Hindsight namespace when the native resource class or retrieval behavior matters.
 
-### `connection_types`
+### Banks, documents, relationships, directives
 
-MemHooks may store any subset of:
+Banks, documents, entity relationships, and directives remain Hindsight-native objects. MemHooks does not promote them into the core protocol.
+
+If an adapter needs bank selection, use `backends.hindsight.bank`. Other Hindsight-native controls should remain under the same namespace.
+
+## Recall versus Reflect
+
+This decision is Hindsight-specific and therefore belongs in the Hindsight adapter.
+
+A useful default:
 
 ```text
-semantic | temporal | entity | causal
+specific fact / event / prior decision
+    -> Recall
+
+existing Mental Model or Knowledge Page directly answers it
+    -> consult that existing resource
+
+multiple memories must be reconciled / synthesized
+    -> Reflect
 ```
 
-These values are routing emphasis, not a fake Hindsight API parameter.
+A query may request an adapter hint:
 
-Use them as follows:
+```yaml
+backends:
+  hindsight:
+    strategy: reflect
+```
 
-- preserve the natural-language wording that makes the requested connection explicit;
-- use a deeper Recall budget when indirect graph structure is important;
-- use temporal expressions/ranges when `temporal` is important;
-- name relevant entities explicitly when `entity` is important;
-- phrase cause/effect questions clearly when `causal` is important;
-- rely on Hindsight's normal semantic retrieval when `semantic` is important.
+The adapter should still respect runtime capabilities and cost/budget policy. If Reflect is unavailable, do not pretend it ran.
 
-If a future Hindsight wrapper exposes an actual native control for one of these dimensions, use it. Otherwise do not invent one.
+## Mapping generic MemHooks cues
 
 ### `recall_queries`
 
-Run each relevant query through Hindsight Recall first. Do not collapse several precise questions into one vague query.
+Use the query text as the primary Hindsight retrieval question. Preserve separate precise questions rather than collapsing them into one vague query.
 
-Example:
+### `priority`
 
-```yaml
-- query: "Why did the authentication design change after the outage?"
-  memory_types: [experience]
-  connection_types: [causal, temporal]
-  entities:
-    - Authentication
-```
-
-This should map to a Hindsight recall with the query text and `types=["experience"]`. The `causal` and `temporal` values sharpen how the query is posed; they are not passed as a nonexistent filter.
+Use MemHooks priority for context-budget decisions around competing recall requests. Do not confuse it with Hindsight relevance or confidence scores.
 
 ### `entities`
 
-MemHooks supports either an untyped string or:
+Use entity-aware retrieval when the active Hindsight interface exposes it; otherwise include important entity names in the query text so graph-aware retrieval can exploit them.
 
-```yaml
-- name: OpenAI
-  type: ORG
-```
+### `resources`
 
-For Hindsight's explicit entity shape, map `name` → `text` and preserve `type` when it is known.
-
-Do not infer a type merely because a name looks like a person, project, place, or product. If the hook only contains a string, treat it as untyped routing metadata.
-
-For retrieval, use entity-aware constraints only when the active Hindsight tool actually exposes them. Otherwise include the relevant entity names in the natural-language query so Hindsight's graph retrieval can use them.
-
-### `mental_models`
-
-If the hook names existing Hindsight mental models, fetch/read them before ordinary Recall when they directly answer the active question. A mental model is already-written synthesized knowledge, so using it can avoid redundant retrieval and synthesis.
-
-Do not create or refresh a mental model merely because MemHooks mentions it.
-
-### `knowledge_pages`
-
-If the hook names existing Hindsight Knowledge Pages, retrieve them as stable synthesized context before descending to raw Recall when appropriate.
-
-Do not create or update a Knowledge Page merely because a hook was loaded.
+Generic resources may be read/retrieved when the runtime knows how to resolve them. Provider-specific resource classes stay under `backends.hindsight`.
 
 ### `tags`
 
-Use Hindsight tag filters where available. Otherwise treat tags as relevance/scoping hints.
+Use native metadata/tag filtering if the active Hindsight interface supports an equivalent. Otherwise treat them as generic relevance hints.
 
 ### `exclude`
 
-Use negative/tag filtering where exposed; otherwise post-filter obsolete or explicitly excluded memories before they enter working context.
+Use native negative filters when available; otherwise remove matched obsolete/misleading results before they enter working context.
 
-## Recall vs reflect
+## Provider namespace merge behavior
 
-```text
-specific fact / event / decision
-    -> recall
+MemHooks itself performs only structural merging:
 
-existing mental model/page directly answers it
-    -> fetch that synthesized resource
+- nested mappings merge recursively;
+- a local scalar replaces its parent value;
+- a local list replaces its parent list;
+- query-local `backends.hindsight` overlays the resolved scope-level Hindsight namespace.
 
-multiple memories must be reconciled
-or the hook asks for synthesis
-    -> reflect
-```
+The Hindsight adapter then interprets the final mapping.
 
-Use `reflect` deliberately. Routine folder entry should not trigger expensive reflection when direct recall or an existing mental model already supplies the context.
+## Hermes tool names
 
-## Hermes-native names
-
-Depending on version, tools may be exposed as names similar to `hindsight_recall`, `hindsight_reflect`, and `hindsight_retain`. Use the actual tools present rather than assuming exact names or parameter names.
+Tool names and exact parameters may vary by Hermes/Hindsight version. Use the actual connected tools rather than assuming names such as `hindsight_recall` or `hindsight_reflect` always exist.
 
 ## Sources
 

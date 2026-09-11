@@ -1,28 +1,25 @@
 # Rust library guide
 
-The `memhooks` crate exposes the same parser, resolver, and validator used by the reference CLI. Agent runtimes can call the library directly instead of spawning the `memhooks` binary or reimplementing the protocol.
+The `memhooks` crate exposes the parser, resolver, model, and validator used by the reference CLI. Agent runtimes can call the library directly instead of spawning the CLI or reimplementing filesystem inheritance and role routing.
 
-> Registry note: the crate is package-tested and crates.io-ready. Until the first authenticated crates.io publication is completed, depend on the GitHub repository/tag rather than the registry.
+The v0.5.0 library implements **`memhooks/v2`**, whose core is backend-neutral. Provider-native configuration is carried as opaque YAML under `backends.<provider>`.
 
 ## Add the dependency
 
-Current GitHub dependency:
-
 ```toml
 [dependencies]
-memhooks = { git = "https://github.com/AronAxe/MemHooks", tag = "v0.4.1" }
+memhooks = "0.5.0"
 ```
 
-After the first crates.io publication:
+or:
 
-```toml
-[dependencies]
-memhooks = "0.4.1"
+```bash
+cargo add memhooks@0.5.0
 ```
 
 ## Resolve effective context
 
-The main entry point for runtime integration is [`resolve`]:
+The main runtime entry point is [`resolve`]:
 
 ```rust
 use memhooks::resolve;
@@ -36,6 +33,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("source: {}", source.display());
     }
 
+    println!("providers: {:?}", resolved.backends.keys().collect::<Vec<_>>());
     Ok(())
 }
 ```
@@ -43,14 +41,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 `resolve`:
 
 1. finds the repository/hook root;
-2. discovers `MEMHOOKS.md` files root to target;
-3. applies `inherits: false` cutoffs;
-4. merges fields using the `memhooks/v1` semantics;
-5. preserves the source path for queries, entities, and free-form guidance.
+2. discovers `MEMHOOKS.md` files root → target;
+3. rejects unsupported schemas rather than silently reinterpreting them;
+4. applies `inherits: false` cutoffs;
+5. merges backend-neutral core fields;
+6. structurally merges opaque provider namespaces;
+7. preserves source provenance.
 
 ## Apply active roles
 
-Once a hook is resolved, obtain the effective query set with [`ResolvedHook::effective_queries`]:
+Use [`ResolvedHook::effective_queries`] after resolution:
 
 ```rust
 use memhooks::resolve;
@@ -61,24 +61,75 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let active_roles = vec!["reviewer".to_string()];
 
     for query in resolved.effective_queries(&active_roles) {
-        println!("{}", query.query);
+        println!("query: {}", query.query);
         println!("priority: {:?}", query.priority);
         println!("roles: {:?}", query.roles);
-        println!("memory types: {:?}", query.memory_types);
-        println!("connections: {:?}", query.connection_types);
+        println!("entities: {:?}", query.entities);
+        println!("resources: {:?}", query.resources);
+        println!("tags: {:?}", query.tags);
+        println!("backend namespaces: {:?}", query.backends.keys());
     }
 
     Ok(())
 }
 ```
 
-If `active_roles` is empty, role-restricted queries are preserved. If active roles are supplied, a restricted query survives when any declared role exactly matches any active role.
+Role behavior:
 
-`effective_queries` also resolves query-local defaults:
+- empty active-role list → preserve role-restricted queries;
+- non-empty active-role list → a restricted query survives when any declared role exactly matches any active role;
+- unrestricted queries always survive.
 
-- query-local `memory_types` override scope-wide defaults for that query;
-- query-local `connection_types` override scope-wide defaults for that query;
-- query-local entities supplement the merged top-level entities.
+`effective_queries` also:
+
+- supplements scope entities with query-local entities;
+- supplements scope resources with query-local resources;
+- supplements scope tags with query-local tags;
+- overlays query-local backend namespaces on the resolved scope-level backend configuration.
+
+## Provider namespaces
+
+Provider data uses [`BackendMap`], which is a string-keyed map of `serde_yaml::Value`.
+
+Example hook:
+
+```yaml
+backends:
+  mem0:
+    filters:
+      user_id: alice
+    threshold: 0.1
+
+recall_queries:
+  - query: "What changed?"
+    backends:
+      mem0:
+        top_k: 5
+        rerank: true
+```
+
+The effective query gets a structurally merged Mem0 mapping containing the inherited filter/threshold plus query-local `top_k`/`rerank`.
+
+The crate deliberately does not know what any of those Mem0 keys mean.
+
+### Structural merge helper
+
+[`merge_backend_maps`] is public for adapters/tooling that need exactly the same merge behavior:
+
+```rust
+use memhooks::{merge_backend_maps, BackendMap};
+
+let mut scope = BackendMap::new();
+let query = BackendMap::new();
+merge_backend_maps(&mut scope, &query);
+```
+
+Merge rule:
+
+- mapping + mapping → recursive merge;
+- a local scalar/list/other value → replace the parent value.
+
+This avoids inventing additive semantics for provider-owned sequences.
 
 ## Parse without resolving inheritance
 
@@ -92,28 +143,32 @@ let hook = parse_hook(Path::new("MEMHOOKS.md"))?;
 println!("schema: {:?}", hook.frontmatter.schema);
 ```
 
-Use [`parse_hook_str`] when the source text already exists in memory:
+Use [`parse_hook_str`] for in-memory source:
 
 ```rust
 use memhooks::parse_hook_str;
 use std::path::Path;
 
 let source = r#"---
-schema: memhooks/v1
+schema: memhooks/v2
 recall_queries:
   - "What decisions matter here?"
+backends:
+  mem0:
+    top_k: 8
 ---
 "#;
 
 let hook = parse_hook_str(Path::new("virtual/MEMHOOKS.md"), source)?;
 assert_eq!(hook.frontmatter.recall_queries.len(), 1);
+assert!(hook.frontmatter.backends.contains_key("mem0"));
 ```
 
-The path argument is retained for provenance and diagnostics even when parsing an in-memory string.
+Parsing and validation are separate operations. `parse_hook`/`parse_hook_str` deserialize the file; validation reports unsupported schema/core mistakes. `resolve` enforces the supported v2 schema for runtime use.
 
 ## Validate hooks
 
-Validate one file:
+One file:
 
 ```rust
 use memhooks::validate_file;
@@ -124,69 +179,75 @@ for diagnostic in validate_file(Path::new("MEMHOOKS.md")) {
 }
 ```
 
-Validate a directory or repository:
+Repository/tree:
 
 ```rust
-use memhooks::validate_path;
+use memhooks::{validate_path, Severity};
 use std::path::Path;
 
 let diagnostics = validate_path(Path::new("."), true);
 let has_errors = diagnostics
     .iter()
-    .any(|d| d.severity == memhooks::Severity::Error);
+    .any(|diagnostic| diagnostic.severity == Severity::Error);
 ```
 
-The second argument to `validate_path` corresponds to CLI `--all` behavior: when `true`, validation starts at the resolved repository root.
+The second argument to `validate_path` corresponds to CLI `--all` behavior.
 
-## Important exported types and functions
+The generic validator checks core semantics and that every provider namespace contains a mapping/object. It does **not** validate arbitrary provider-internal keys.
 
-The crate currently re-exports:
+## Important exported types/functions
 
 ### Model
 
-- `HookFrontmatter`
-- `RecallQuery`
-- `StructuredRecallQuery`
-- `QueryCondition`
-- `Entity`
-- `StructuredEntity`
+- [`BackendMap`]
+- [`HookFrontmatter`]
+- [`RecallQuery`]
+- [`StructuredRecallQuery`]
+- [`QueryCondition`]
+- [`Entity`]
+- [`StructuredEntity`]
+- [`Resource`]
+- [`StructuredResource`]
 
 ### Parsing
 
-- `parse_hook`
-- `parse_hook_str`
-- `ParsedHook`
-- `ParseError`
+- [`parse_hook`]
+- [`parse_hook_str`]
+- [`ParsedHook`]
+- [`ParseError`]
 
 ### Resolution
 
-- `find_root`
-- `inheritance_chain`
-- `resolve`
-- `ResolvedHook`
-- `EffectiveQuery`
-- `Sourced<T>`
-- `HOOK_FILENAME`
+- [`find_root`]
+- [`inheritance_chain`]
+- [`resolve`]
+- [`merge_backend_maps`]
+- [`ResolvedHook`]
+- [`EffectiveQuery`]
+- [`Sourced`]
+- [`HOOK_FILENAME`]
 
 ### Validation
 
-- `discover_hooks`
-- `validate_file`
-- `validate_parsed`
-- `validate_path`
-- `Diagnostic`
-- `Severity`
+- [`discover_hooks`]
+- [`validate_file`]
+- [`validate_parsed`]
+- [`validate_path`]
+- [`Diagnostic`]
+- [`Severity`]
 
 ## Runtime responsibilities outside the crate
 
-The crate deliberately stops before memory retrieval. A host runtime remains responsible for:
+The crate deliberately stops before memory retrieval. The host runtime remains responsible for:
 
-- identifying the configured memory backend;
-- translating effective queries into backend-native searches;
-- applying trust/access policy;
+- identifying the configured/authorized memory backend;
+- interpreting its own `backends.<provider>` namespace;
+- optionally validating provider-native configuration;
+- translating effective queries into backend-native retrieval;
+- applying credentials/access/trust policy;
 - budgeting returned context;
 - deciding prompt placement;
-- retaining provenance from the memory backend;
-- deciding whether and how semantic notes are written.
+- retaining memory provenance;
+- maintaining semantic routing cues when appropriate.
 
-This boundary keeps the reference implementation portable and auditable.
+This boundary is what keeps `memhooks/v2` genuinely backend-neutral.

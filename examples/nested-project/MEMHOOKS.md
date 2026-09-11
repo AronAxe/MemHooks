@@ -1,12 +1,7 @@
 ---
-schema: memhooks/v1
-bank: example-project
+schema: memhooks/v2
 scope: project-root
 inherits: true
-
-knowledge_pages:
-  - "Architecture/System overview"
-  - "Decisions/Current architecture"
 
 recall_queries:
   - "What are the current architectural boundaries and non-negotiable project constraints?"
@@ -15,6 +10,12 @@ recall_queries:
 entities:
   - Example Project
 
+resources:
+  - name: Architecture/System overview
+    kind: architecture
+  - name: Decisions/Current architecture
+    kind: decision-log
+
 tags:
   - project:example
 
@@ -22,6 +23,13 @@ exclude:
   - abandoned v0 prototype
 
 sensitivity: private
+
+backends:
+  hindsight:
+    bank: example-project
+  mem0:
+    filters:
+      user_id: example-project-agent
 ---
 
 # Retrieval guidance

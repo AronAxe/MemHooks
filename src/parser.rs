@@ -97,3 +97,18 @@ pub fn parse_hook_str(path: impl AsRef<Path>, source: &str) -> Result<ParsedHook
         frontmatter_start_line: 2,
     })
 }
+
+pub fn require_v2_schema(parsed: &ParsedHook) -> Result<(), ParseError> {
+    if parsed.frontmatter.schema.as_deref() == Some("memhooks/v2") {
+        return Ok(());
+    }
+    Err(ParseError {
+        path: parsed.path.clone(),
+        message: format!(
+            "unsupported MemHooks schema `{}`; expected `memhooks/v2`",
+            parsed.frontmatter.schema.as_deref().unwrap_or("<missing>")
+        ),
+        line: parsed.line_for_key("schema"),
+        column: Some(1),
+    })
+}

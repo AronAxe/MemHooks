@@ -1,5 +1,5 @@
 ---
-schema: memhooks/v1
+schema: memhooks/v2
 scope: backend
 inherits: true
 
@@ -17,4 +17,4 @@ tags:
 
 # Retrieval guidance
 
-Direct recall is normally sufficient. Escalate to memory synthesis only if previous decisions conflict.
+Direct recall is normally sufficient. Use the active provider's synthesis/reasoning capability only if previous decisions conflict.

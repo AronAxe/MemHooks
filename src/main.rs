@@ -110,16 +110,13 @@ fn run_explain(path: PathBuf, roles: Vec<String>, format: ExplainFormat) -> i32 
                 "root": resolved.root,
                 "target": resolved.target,
                 "sources": resolved.sources,
-                "bank": resolved.bank,
                 "scope": resolved.scope,
                 "sensitivity": resolved.sensitivity,
-                "memory_types": resolved.memory_types,
-                "connection_types": resolved.connection_types,
-                "mental_models": resolved.mental_models,
-                "knowledge_pages": resolved.knowledge_pages,
                 "entities": resolved.entities,
+                "resources": resolved.resources,
                 "tags": resolved.tags,
                 "exclude": resolved.exclude,
+                "backends": resolved.backends,
                 "active_roles": roles,
                 "recall_queries": queries,
             });
@@ -139,6 +136,17 @@ fn run_explain(path: PathBuf, roles: Vec<String>, format: ExplainFormat) -> i32 
             if !roles.is_empty() {
                 println!("active roles: {}", roles.join(", "));
             }
+            if !resolved.backends.is_empty() {
+                println!(
+                    "backend namespaces: {}",
+                    resolved
+                        .backends
+                        .keys()
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+            }
             println!("recall queries ({}):", queries.len());
             for query in queries {
                 let priority = query
@@ -152,8 +160,20 @@ fn run_explain(path: PathBuf, roles: Vec<String>, format: ExplainFormat) -> i32 
                 };
                 println!("  - [{} | roles:{}] {}", priority, role_text, query.query);
                 println!("      source: {}", query.source.display());
+                if !query.backends.is_empty() {
+                    println!(
+                        "      backends: {}",
+                        query
+                            .backends
+                            .keys()
+                            .cloned()
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    );
+                }
             }
             println!("entities: {}", resolved.entities.len());
+            println!("resources: {}", resolved.resources.len());
             println!("exclusions: {}", resolved.exclude.len());
         }
     }

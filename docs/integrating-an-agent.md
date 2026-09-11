@@ -1,47 +1,58 @@
 # Integrating MemHooks into an agent runtime
 
-MemHooks is intentionally agent-agnostic. An integration is a thin adapter around the reference resolver plus the host runtime's existing memory and context systems.
+MemHooks is intentionally agent-agnostic and backend-neutral. A runtime integration combines the reference resolver with the host's existing memory, trust, and context systems.
+
+The **runtime/agent** owns local hook maintenance. The human user should not have to manually curate hook length, phrasing, or provider metadata during ordinary use.
 
 ## Minimal lifecycle
-
-A runtime integration needs two conceptual moments:
 
 ```text
 before model call
     ↓
-resolve MEMHOOKS.md for active directory
+determine real active directory
     ↓
-apply active role(s) if known
+resolve memhooks/v2 root → leaf
     ↓
-translate applicable recall queries to memory backend
+apply known active role(s)
+    ↓
+select configured/authorized memory backend
+    ↓
+translate backend-neutral core intent
+    + interpret only that backend's namespace
     ↓
 retrieve bounded context
     ↓
-inject that context using the host's own trust/prompt policy
+inject using host trust/prompt policy
 
 
 after meaningful work/tool activity (optional)
     ↓
-maintain small retrieval cues without writing memory content
+agent/runtime maintains concise retrieval cues
 ```
 
-The repository includes a Hermes implementation under `hooks/hermes/` and a zero-LLM maintainer under `scripts/memhooks_update.py`.
+The repository includes a Hermes implementation under `hooks/hermes/` and a deterministic maintainer under `scripts/memhooks_update.py`.
 
-## 1. Determine the target directory
+## 1. Determine the actual target directory
 
-Use the actual working directory or the directory containing the file/subsystem being worked on. Do not infer a fake directory solely from the prompt.
+Use the real working directory or the directory containing the subsystem/file being worked on. Do not infer a fake path from prompt wording.
 
-Call the reference resolver:
+Rust:
 
 ```rust
 let resolved = memhooks::resolve(target_path)?;
 ```
 
-The resolver handles root discovery, inheritance, `inherits: false`, list accumulation, scalar locality, and source provenance.
+`resolve` handles:
 
-## 2. Supply active roles only when the runtime knows them
+- root discovery;
+- `memhooks/v2` enforcement;
+- root→leaf inheritance;
+- `inherits: false`;
+- generic cue merging;
+- opaque provider namespace merging;
+- source provenance.
 
-Examples of runtime/project roles might include `reviewer`, `architect`, `refactor`, or `feature_dev`. MemHooks does not define a global role taxonomy.
+## 2. Apply active roles only when known
 
 ```rust
 let queries = resolved.effective_queries(&active_roles);
@@ -49,98 +60,191 @@ let queries = resolved.effective_queries(&active_roles);
 
 Rules:
 
-- no role condition means the query applies universally;
-- role-restricted queries use exact-string OR matching;
-- an empty active-role list preserves all queries;
-- runtime-specific aliases should be normalized by the adapter before filtering.
+- no role condition → universally applicable;
+- restricted query → exact-string OR match against active roles;
+- no active-role information → preserve restricted queries;
+- normalize host-specific aliases before passing roles to the resolver if the runtime has explicit alias rules.
 
-Do not invent an active role just to make routing look more precise.
+Do not invent roles just to increase apparent routing precision.
 
-## 3. Translate fields to the memory backend
+## 3. Select the active backend from runtime configuration
 
-For every effective query, preserve the intent:
+**Namespace presence is not backend selection.**
 
-- `query` — the natural-language retrieval request;
-- `priority` — importance under context pressure, not a relevance/confidence score;
-- `memory_types` — memory-category filter/hint when supported;
-- `connection_types` — semantic/temporal/entity/causal emphasis;
-- `entities` — retrieval cues, optionally with type and salience;
-- `exclude` — material that should not enter current context;
-- `bank` — namespace/bank/session hint when the backend has an equivalent;
-- `mental_models` / `knowledge_pages` — existing synthesized retrieval targets.
+A hook may contain several namespaces:
 
-Use native backend controls only when they genuinely exist. Otherwise translate the intent into natural-language retrieval and post-filtering rather than fabricating unsupported API parameters.
+```yaml
+backends:
+  hindsight: {...}
+  mem0: {...}
+  openviking: {...}
+```
 
-See `references/memory-systems/` for worked mappings.
+That does not mean the agent should call all three systems.
 
-## 4. Keep retrieval bounded
+The host runtime should determine which memory backend is configured, connected, authorized, and appropriate for the session. Then interpret only the relevant namespace.
 
-MemHooks is meant to reduce forgotten context, not to maximize prompt size.
+If the configured backend has no namespace in the hook, the generic core retrieval intent still applies.
+
+## 4. Translate backend-neutral core intent
+
+For each effective query preserve:
+
+- `query` — natural-language retrieval request;
+- `priority` — importance under context pressure;
+- `entities` — named retrieval cues with optional open type/salience;
+- `resources` — named existing resources with optional open kind/salience;
+- `tags` — generic routing/relevance labels;
+- `exclude` — material that should not enter working context;
+- `scope` / `sensitivity` — generic scope/advisory handling metadata.
+
+Do not reinterpret one provider's concepts as core fields.
+
+## 5. Interpret the selected provider namespace
+
+Provider-native configuration is available in the effective query's `backends` map.
+
+Example:
+
+```yaml
+backends:
+  mem0:
+    filters:
+      user_id: alice
+    top_k: 8
+    rerank: true
+```
+
+A Mem0 adapter may translate that to Mem0's current search API.
+
+Likewise:
+
+```yaml
+backends:
+  hindsight:
+    memory_types: [experience]
+    strategy: reflect
+```
+
+is interpreted only by a Hindsight adapter.
+
+Reference mappings:
+
+- `references/memory-systems/01-hindsight.md`
+- `references/memory-systems/02-openviking.md`
+- `references/memory-systems/03-honcho.md`
+- `references/memory-systems/04-mem0.md`
+- `references/memory-systems/99-generic-or-unknown.md`
+
+### Provider validation
+
+The generic validator checks only that each provider namespace is a mapping/object. Provider adapters may add stricter validation for their own configuration.
+
+Do not make the generic protocol depend on every provider SDK just to validate provider-native keys.
+
+## 6. Understand namespace merge semantics
+
+The reference resolver performs structural merging only:
+
+- mapping + mapping → recursive merge;
+- a more local scalar replaces the parent scalar;
+- a more local list replaces the parent list;
+- query-local provider configuration overlays resolved scope-level configuration.
+
+This is intentionally less opinionated than provider semantics.
+
+If a provider wants additive-list behavior, its adapter can expose a provider-native structure that expresses that explicitly rather than relying on MemHooks to guess.
+
+## 7. Keep retrieval bounded
+
+MemHooks reduces forgotten context; it is not permission to maximize prompt size.
 
 A context manager should generally:
 
-1. preserve hard exclusions and host security policy;
-2. retrieve enough evidence to answer each applicable recall query;
-3. prefer explicitly higher-priority queries when budget forces a choice;
-4. use entity salience as a cue-importance hint;
-5. remove duplicate/redundant returned memories;
-6. stop when further retrieval is unlikely to change the current task.
+1. preserve host security/authorization and exclusions;
+2. retrieve enough evidence for applicable recall queries;
+3. prefer higher MemHooks priority when requests compete for budget;
+4. use entity/resource salience as cue-importance hints;
+5. let the backend rank results within a particular search;
+6. remove redundant returned context;
+7. stop when additional retrieval is unlikely to affect the task.
 
-The protocol intentionally does not prescribe one universal scoring formula.
+Do not confuse MemHooks priority/salience with provider relevance/confidence scores.
 
-## 5. Prompt placement remains host-controlled
+## 8. Prompt placement remains host-controlled
 
-A `MEMHOOKS.md` file does **not** grant itself system-level prompt privilege. Repositories may be untrusted. The runtime decides where recalled context belongs and how much authority it has.
+A repository-controlled hook cannot grant itself system/developer authority.
 
-Safe default:
+Safe model:
 
-- treat MemHooks as retrieval metadata;
-- treat retrieved memories according to their normal trust/provenance;
-- keep actual host policy and security boundaries outside repository-controlled files.
+- MemHooks is retrieval metadata;
+- retrieved memories retain their ordinary provenance/trust;
+- host policy decides prompt placement and authority;
+- provider credentials and sensitive scopes remain outside untrusted hook files where appropriate.
 
-## 6. Optional maintenance
+## 9. Agent/runtime maintenance
 
-The bundled maintainer can keep retrieval cues fresh without a separate LLM call:
+This is where “keep hooks concise” belongs: **the runtime/agent should do it automatically.**
+
+Deterministic path maintenance:
 
 ```bash
 python3 scripts/memhooks_update.py event
 ```
 
-for runtime tool events, and:
+Same-turn semantic cue already discovered by the active model:
 
 ```bash
 python3 scripts/memhooks_update.py note \
   --cwd "$PWD" \
   --query "Why was this retry strategy selected?" \
   --priority 0.8 \
-  --role reviewer
+  --role reviewer \
+  --entity RetryPolicy \
+  --resource retry-postmortem \
+  --tag reliability \
+  --backends '{"mem0":{"top_k":6}}'
 ```
 
-for same-turn semantic cues.
+The maintainer deep-merges repeated provider mappings and enriches generic metadata instead of erasing previous routing context.
 
-Maintenance writes routing metadata only. It must not create, rewrite, consolidate, or delete memory-backend facts merely because a hook exists.
+### Agent maintenance rules
 
-## 7. Failure behavior
+The agent/runtime should:
 
-A robust adapter should fail soft:
+- keep cues specific and compact enough to function as an index;
+- create local cues when the local subsystem has materially different recall needs;
+- prune/replace stale or misleading routing when discovered;
+- avoid writing memory contents into the hook;
+- avoid guessing semantic metadata or provider controls from file paths alone;
+- keep provider-native fields inside `backends.<provider>`.
+
+These are runtime responsibilities, not instructions for the end user to manually curate the repository.
+
+## 10. Failure behavior
+
+A robust adapter should fail soft where safe:
 
 - no `MEMHOOKS.md` → continue normally;
-- parse/validation error → surface/log it and avoid inventing routing;
-- no memory backend → continue without pretending retrieval happened;
-- unknown backend feature → use the nearest safe native operation;
-- retrieval returns nothing → continue without fabricated continuity;
-- conflicting memories → preserve the conflict or use the backend's explicit synthesis operation if one exists.
+- unsupported schema → surface the error; do not silently reinterpret;
+- invalid core routing → surface/log and do not fabricate it;
+- no memory backend → continue without claiming retrieval happened;
+- unsupported provider hint → ignore/translate safely and report in diagnostics/logging when useful;
+- retrieval returns nothing → continue without invented continuity;
+- conflicting memories → preserve conflict or use an explicit provider synthesis operation if supported.
 
 ## Adapter checklist
 
 Before shipping an integration, verify that it:
 
-- uses the reference merge semantics;
-- does not silently discard role-restricted queries when role is unknown;
-- distinguishes query priority from backend similarity/confidence;
-- distinguishes entity salience from query priority;
+- uses reference v2 merge semantics;
+- selects the active backend from host configuration rather than namespace presence;
+- does not silently discard restricted queries when role is unknown;
+- distinguishes priority/salience from backend relevance/confidence;
+- interprets provider-native keys only inside the matching namespace;
 - respects `exclude`;
-- preserves source/provenance when possible;
+- preserves source/provenance where possible;
 - keeps retrieval bounded;
-- does not allow a hook file to elevate its own prompt privilege;
+- treats hook maintenance as an agent/runtime concern;
+- does not allow hook files to elevate their own prompt privilege;
 - does not turn retrieval metadata into automatic memory writes.
