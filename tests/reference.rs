@@ -224,3 +224,24 @@ recall_queries:
         .iter()
         .any(|d| d.code == "MH001" && d.severity == Severity::Error));
 }
+
+#[test]
+fn resolver_rejects_v1_schema_instead_of_silently_dropping_provider_fields() {
+    let temp = tempdir().unwrap();
+    let root = temp.path();
+    fs::create_dir(root.join(".git")).unwrap();
+    fs::write(
+        root.join("MEMHOOKS.md"),
+        r#"---
+schema: memhooks/v1
+memory_types: [experience]
+recall_queries:
+  - "old schema query"
+---
+"#,
+    )
+    .unwrap();
+
+    let error = resolve(root).unwrap_err();
+    assert!(error.message.contains("memhooks/v2"));
+}
