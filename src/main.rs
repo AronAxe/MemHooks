@@ -139,7 +139,12 @@ fn run_explain(path: PathBuf, roles: Vec<String>, format: ExplainFormat) -> i32 
             if !resolved.backends.is_empty() {
                 println!(
                     "backend namespaces: {}",
-                    resolved.backends.keys().cloned().collect::<Vec<_>>().join(", ")
+                    resolved
+                        .backends
+                        .keys()
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 );
             }
             println!("recall queries ({}):", queries.len());
@@ -158,7 +163,12 @@ fn run_explain(path: PathBuf, roles: Vec<String>, format: ExplainFormat) -> i32 
                 if !query.backends.is_empty() {
                     println!(
                         "      backends: {}",
-                        query.backends.keys().cloned().collect::<Vec<_>>().join(", ")
+                        query
+                            .backends
+                            .keys()
+                            .cloned()
+                            .collect::<Vec<_>>()
+                            .join(", ")
                     );
                 }
             }
