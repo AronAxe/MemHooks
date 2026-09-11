@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.1 — 2026-09-11
+
+- Prepared the Rust reference implementation for publication on crates.io.
+- Added crates.io package metadata: homepage, docs.rs URL, README, keywords, categories, and a lean explicit package include set.
+- Added direct installation instructions for `cargo install memhooks` and `cargo add memhooks`.
+- Updated the README to explain the CLI/library split in plain language and to use package-safe absolute artwork URLs.
+- Added `cargo publish --dry-run` to CI so package contents and publishability are continuously verified.
+- Kept the MemHooks protocol itself unchanged: `memhooks/v1`, weighted retrieval, entity salience, role routing, inheritance, and runtime behavior are identical to v0.4.0.
+
 ## 0.4.0 — 2026-09-11
 
 - Added weighted retrieval for structured `recall_queries` with optional `priority` values from `0.0` to `1.0`.
