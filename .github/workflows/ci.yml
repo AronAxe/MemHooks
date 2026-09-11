@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main, v0.4.0]
+  pull_request:
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust format
+        run: cargo fmt --all -- --check
+      - name: Rust clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: Rust tests
+        run: cargo test --all-targets --all-features
+      - name: Validate repository MemHooks
+        run: cargo run --quiet -- validate --all
+
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Python regression tests
+        run: |
+          python -m pip install --disable-pip-version-check pytest
+          pytest -q
