@@ -5,9 +5,9 @@
 <p align="center">
   <img alt="Agent Skills" src="https://img.shields.io/badge/Agent%20Skills-compatible-7c4dff" />
   <img alt="Hermes" src="https://img.shields.io/badge/Hermes-compatible-00bcd4" />
-  <img alt="Memory agnostic" src="https://img.shields.io/badge/memory-backend%20agnostic-2ea44f" />
+  <img alt="Backend neutral" src="https://img.shields.io/badge/memory%20backend-neutral-2ea44f" />
   <img alt="Crates.io" src="https://img.shields.io/crates/v/memhooks" />
-  <img alt="Version" src="https://img.shields.io/badge/version-0.4.1-orange" />
+  <img alt="Version" src="https://img.shields.io/badge/version-0.5.0-orange" />
   <img alt="License" src="https://img.shields.io/badge/license-MIT-blue" />
 </p>
 
@@ -23,7 +23,7 @@ An agent can have the right memory stored perfectly and still fail to use it bec
 
 > **Memory systems know how to remember. MemHooks tells the agent what to recall here.**
 
-A `MEMHOOKS.md` file contains retrieval routing: concrete recall questions, optional memory categories, connection emphasis, entities, priority, role applicability, exclusions, and references to existing synthesized resources. Before substantive work, an agent resolves the applicable files from repository root to the active directory and performs bounded recall.
+When an agent works in a directory, MemHooks resolves the applicable `MEMHOOKS.md` files from repository root to that directory, applies role routing, and produces a bounded retrieval plan for whatever memory backend the runtime actually uses.
 
 ```text
 workspace/
@@ -46,169 +46,181 @@ local auth hook
    ↓
 resolve + apply role routing
    ↓
-translate to current memory backend
+hand backend-neutral intent + provider hints to the runtime
    ↓
-recall the highest-value context that matters
+recall bounded relevant context
    ↓
 do the work
 ```
 
-## Documentation
+## Who does what?
 
-Start with the [documentation index](docs/README.md), or jump directly to:
+**Normal users generally do not hand-maintain `MEMHOOKS.md`.**
 
-- [Quickstart](docs/quickstart.md)
-- [CLI reference](docs/cli.md)
-- [Rust library/API guide](docs/rust-library.md)
-- [Agent integration guide](docs/integrating-an-agent.md)
-- [Protocol guide](docs/protocol-guide.md)
-- [Troubleshooting](docs/troubleshooting.md)
-- [Crate publishing notes](docs/publishing.md)
+- **User:** installs/enables MemHooks and may choose or configure a memory backend.
+- **Agent/runtime:** creates and maintains local retrieval cues as work evolves, and decides which backend is active.
+- **MemHooks reference engine:** parses, inherits, validates, filters, explains, and preserves provider-specific hints without interpreting them.
+- **Memory backend:** stores and retrieves the actual memories.
 
-The normative format contract remains [`references/memhooks-format.md`](references/memhooks-format.md).
-## Install the Rust tooling
+The hook files are infrastructure for agents. Advice about pruning, cue quality, or routing-file size is therefore directed at agents/runtime authors, not at end users.
 
-### CLI
+## v0.5.0: genuinely backend-neutral
 
-Install the CLI directly from crates.io:
+`memhooks/v2` separates universal retrieval intent from provider-native controls.
 
-```bash
-cargo install memhooks
-```
+The **core** understands only concepts that are useful regardless of memory vendor:
 
-Then use:
+- `recall_queries`
+- query `priority`
+- `when.roles`
+- `entities`
+- `resources`
+- `tags`
+- `exclude`
+- `scope`
+- `sensitivity`
+- filesystem inheritance
 
-```bash
-# Validate hooks below the current directory
-memhooks validate
-
-# Validate every MEMHOOKS.md in the repository
-memhooks validate --all
-
-# Machine-readable output for CI or other agents
-memhooks validate --all --format json
-memhooks validate --all --format sarif
-
-# Explain the inherited/effective routing for a directory
-memhooks explain backend/auth
-
-# Explain it for an active agent role
-memhooks explain backend/auth --role reviewer
-memhooks explain backend/auth --role reviewer --role architect --format json
-```
-
-### Rust library
-
-Rust agent frameworks can use the same parser/resolver directly instead of reimplementing MemHooks semantics:
-
-```bash
-cargo add memhooks
-```
-
-In plain English: **the CLI and the reusable engine are the same project.** A framework can either run the `memhooks` command or call the Rust library internally.
-
-For an exact release:
-
-```bash
-cargo install memhooks --version 0.4.1
-cargo add memhooks@0.4.1
-```
-
-The reference implementation **does not execute shell commands and does not contact a memory backend**. It parses, resolves, filters, explains, and validates the routing plan.
-
-## What's in v0.4.x
-
-- **Weighted retrieval** — structured queries may carry `priority: 0.0..1.0`.
-- **Entity salience** — structured entities may carry `salience: 0.0..1.0`.
-- **Role-based routing** — queries may declare `when.roles`.
-- **Rust reference implementation** — reusable parser/model/resolver/validator library plus CLI.
-- **Validation** — human, JSON, and SARIF diagnostics with CI-friendly exit codes.
-- **Explainability** — `memhooks explain` shows which hooks were inherited and which queries are effective.
-- **Backward compatibility** — the schema remains `memhooks/v1`; legacy string queries/entities continue to work.
-- **v0.4.1 packaging** — publish-ready crates.io metadata and a lean crate package containing the Rust implementation, README, and license rather than repository artwork/runtime extras.
-
-## Weighted retrieval and role routing
+Anything native to a particular memory system belongs under:
 
 ```yaml
-recall_queries:
-  - query: "What security boundaries must never be violated in this module?"
-    priority: 1.0
-    when:
-      roles: [reviewer, architect]
-
-  - query: "What naming conventions are preferred here?"
-    priority: 0.35
+backends:
+  <provider>:
+    ... provider-owned configuration ...
 ```
 
-`priority` is the importance of the **recall request** under a finite context budget. It is not semantic similarity, confidence, truth probability, or a mandatory backend score multiplier.
+MemHooks deliberately does **not** know what those provider keys mean.
 
-If `priority` is omitted, MemHooks assigns no mandatory numeric default. Existing queries remain ordinary/unweighted queries.
-
-Entities have their own concept:
+### Example
 
 ```yaml
-entities:
-  - name: Authentication
-    type: CONCEPT
-    salience: 0.95
-```
-
-`salience` describes the importance of an **entity as a retrieval cue** and is deliberately separate from query priority.
-
-Role names are open project/runtime-defined strings:
-
-```yaml
-when:
-  roles: [reviewer, refactor]
-```
-
-When active roles are known, a restricted query applies if **any** listed role matches. Unrestricted queries apply to every role.
-
-## A complete hook example
-
-```md
 ---
-schema: memhooks/v1
+schema: memhooks/v2
 inherits: true
-
-memory_types:
-  - world
-  - experience
-  - observation
-
-connection_types:
-  - semantic
-  - temporal
-  - entity
-  - causal
+scope: backend/auth
 
 recall_queries:
   - query: "Why did the authentication design change after the outage?"
     priority: 1.0
     when:
       roles: [reviewer, architect]
-    memory_types: [experience]
-    connection_types: [causal, temporal]
     entities:
       - Authentication
-      - name: OpenAI
-        type: ORG
+    resources:
+      - name: auth-postmortem
+        kind: postmortem
         salience: 0.9
+    tags: [security]
+    backends:
+      mem0:
+        top_k: 8
+        rerank: true
+      hindsight:
+        memory_types: [experience]
+        connection_types: [causal, temporal]
+        strategy: reflect
 
 entities:
   - name: Authentication
     type: CONCEPT
     salience: 0.95
 
+resources:
+  - auth-architecture
+
+tags: [backend]
 exclude:
   - obsolete OAuth prototype
----
 
-Use direct recall first. Use deeper memory reasoning only if the retrieved
-facts disagree or the rationale is still unclear.
+backends:
+  mem0:
+    filters:
+      user_id: auth-agent
+  hindsight:
+    bank: project-memory
+---
 ```
 
-The file contains **retrieval metadata, not the memory itself**.
+Here `priority`, roles, entities, resources, tags, and exclusions are MemHooks concepts. `top_k`, `rerank`, Mem0 filters, Hindsight memory types, `bank`, and `reflect` are **not**. They are opaque provider hints carried under their own namespace.
+
+## Provider namespaces
+
+v0.5.0 ships first-class reference mappings for:
+
+- [Hindsight](references/memory-systems/01-hindsight.md)
+- [OpenViking](references/memory-systems/02-openviking.md)
+- [Honcho](references/memory-systems/03-honcho.md)
+- [Mem0](references/memory-systems/04-mem0.md)
+- [Generic / unknown backends](references/memory-systems/99-generic-or-unknown.md)
+
+These mappings explain how an adapter can interpret its own namespace. The Rust core treats all backend namespace contents as opaque YAML mappings.
+
+### Merge behavior for provider hints
+
+Provider mappings inherit root → leaf just like the surrounding hook chain, but MemHooks does not invent provider semantics:
+
+- mapping/object values are recursively merged;
+- a more local scalar replaces the parent scalar;
+- a more local list replaces the parent list;
+- query-local `backends.<provider>` overlays the resolved scope-level provider configuration.
+
+That gives adapters predictable configuration without pretending MemHooks understands every provider API.
+
+## Install the Rust tooling
+
+### CLI
+
+```bash
+cargo install memhooks
+```
+
+Useful commands:
+
+```bash
+memhooks validate --all
+memhooks validate --all --format json
+memhooks validate --all --format sarif
+
+memhooks explain backend/auth
+memhooks explain backend/auth --role reviewer
+memhooks explain backend/auth --role reviewer --format json
+```
+
+### Rust library
+
+```bash
+cargo add memhooks
+```
+
+A Rust runtime can use the reference resolver directly instead of reimplementing inheritance and role-routing semantics.
+
+For this release specifically:
+
+```bash
+cargo install memhooks --version 0.5.0
+cargo add memhooks@0.5.0
+```
+
+The reference implementation does **not** contact a memory backend and does **not** execute commands from hook files. It resolves retrieval intent and provider configuration; the host runtime performs retrieval.
+
+## Core fields at a glance
+
+| Field | Meaning |
+|---|---|
+| `schema` | currently `memhooks/v2` |
+| `inherits` | inherit ancestor hooks; defaults to `true` |
+| `scope` | optional backend-neutral scope label |
+| `recall_queries` | concrete questions worth asking memory |
+| `recall_queries[].priority` | optional `0.0..1.0` importance under context pressure |
+| `recall_queries[].when.roles` | optional exact-string role applicability |
+| `entities` | named retrieval cues, optionally with open `type` and `salience` |
+| `resources` | named existing resources, optionally with open `kind` and `salience` |
+| `tags` | backend-neutral routing/relevance labels |
+| `exclude` | obsolete or misleading context to keep out |
+| `sensitivity` | advisory handling metadata |
+| `backends` | opaque provider namespaces interpreted by adapters, not by the core |
+
+The normative contract is [`references/memhooks-format.md`](references/memhooks-format.md).
 
 ## Root-to-leaf behavior
 
@@ -220,64 +232,15 @@ Given:
 /repo/backend/auth/MEMHOOKS.md
 ```
 
-an agent working in `/repo/backend/auth/` resolves all three in that order.
+an agent working in `/repo/backend/auth/` resolves all three in that order unless a local `inherits: false` cuts off the parent chain.
 
-- Lists accumulate and exact duplicates are removed.
-- More local scalar values win.
-- `inherits: false` cuts off the parent chain.
-- Query-local memory/connection types override scope defaults for that query.
-- Query-local entities supplement inherited entities.
-- Priority and role conditions remain attached to the query that declared them.
-- Entity salience remains attached to that entity.
-- Role filtering happens after inheritance resolution when active-role information exists.
-- Retrieval remains bounded; the result is a routing plan, not permission to dump an entire memory store into context.
+Core lists accumulate with exact duplicate removal; more local scalar core values win. Query-local entities/resources/tags supplement inherited core cues. Role filtering happens after inheritance resolution when active roles are actually known.
 
-Read the complete contract in [`references/memhooks-format.md`](references/memhooks-format.md).
-
-## Hindsight ontology mapping
-
-MemHooks keeps these dimensions separate:
-
-- memory categories: `world | experience | observation`
-- connection emphasis: `semantic | temporal | entity | causal`
-- entities: actual named things, optionally with entity type and salience
-- mental models / Knowledge Pages: higher-level existing synthesized retrieval targets
-
-See [`references/memory-systems/01-hindsight.md`](references/memory-systems/01-hindsight.md) for the mapping. OpenViking, Honcho, and generic-backend mappings are also included under [`references/memory-systems/`](references/memory-systems/).
-
-## Zero-LLM maintenance
-
-MemHooks includes `scripts/memhooks_update.py` so routing files can evolve without a separate model call.
-
-Simple note:
-
-```bash
-python3 scripts/memhooks_update.py note \
-  --cwd "$PWD" \
-  --query "Why was refresh-token rotation split into two stages?"
-```
-
-Routed note:
-
-```bash
-python3 scripts/memhooks_update.py note \
-  --cwd "$PWD" \
-  --query "Why did the authentication design change after the outage?" \
-  --priority 1.0 \
-  --role reviewer \
-  --role architect \
-  --memory-type experience \
-  --connection-type causal \
-  --connection-type temporal \
-  --entity 'Authentication' \
-  --entity '{"name":"OpenAI","type":"ORG","salience":0.9}'
-```
-
-Deterministic path auto-anchors deliberately do **not** guess memory type, role, priority, entity type, salience, or causal structure.
+Provider namespace mappings use the merge behavior described above.
 
 ## Hermes / Hermes Desktop
 
-Clone the repository into the active Hermes skills directory:
+Clone the skill:
 
 ```bash
 git clone https://github.com/AronAxe/MemHooks.git ~/.hermes/skills/memhooks
@@ -304,37 +267,29 @@ hooks:
       timeout: 5
 ```
 
-Then enable MemHooks once inside a project:
+Then enable it once inside a project:
 
 ```text
 /memhooks init
 ```
 
-See [`hooks/hermes/README.md`](hooks/hermes/README.md) for the runtime-specific details.
+After initialization, the runtime/agent maintains the routing cues. See [`hooks/hermes/README.md`](hooks/hermes/README.md).
 
-## File format at a glance
+## Documentation
 
-| Field | Purpose |
-|---|---|
-| `inherits` | inherit parent-directory hooks (`true` by default) |
-| `memory_types` | optional memory categories |
-| `connection_types` | optional semantic/temporal/entity/causal emphasis |
-| `recall_queries` | concrete questions worth asking memory |
-| `recall_queries[].priority` | optional `0.0..1.0` importance under a finite context budget |
-| `recall_queries[].when.roles` | optional role-based applicability |
-| `entities` | named entities, optionally `{name, type, salience}` |
-| `mental_models` | existing standing answers worth retrieving first when supported |
-| `knowledge_pages` | existing stable synthesized pages/resources |
-| `tags` | backend-neutral relevance/scoping hints |
-| `exclude` | obsolete or misleading context to keep out |
-| `bank` | optional memory namespace/bank/session hint |
-| `sensitivity` | advisory handling metadata |
+- [Documentation index](docs/README.md)
+- [Quickstart](docs/quickstart.md)
+- [CLI reference](docs/cli.md)
+- [Rust library/API guide](docs/rust-library.md)
+- [Agent integration guide](docs/integrating-an-agent.md)
+- [Protocol guide](docs/protocol-guide.md)
+- [Troubleshooting](docs/troubleshooting.md)
 
 ## What MemHooks is not
 
-MemHooks is **not** a vector database, memory provider, automatic memory-writing system, entity-relationship schema, directive store, Knowledge Page generator, GraphRAG framework, shell-command manifest, or excuse to shove more tokens into every prompt.
+MemHooks is **not** a vector database, memory provider, automatic memory-writing system, GraphRAG framework, prompt-privilege mechanism, shell-command manifest, or background daemon.
 
-It is deliberately boring infrastructure:
+It is deliberately narrow infrastructure:
 
 > **When an agent works here, remember these things first.**
 
@@ -344,9 +299,7 @@ If MemHooks is about **retrieving the right context**, [**Token Terminator**](ht
 
 ## Status
 
-**v0.4.1 — experimental convention + published Rust reference resolver/linter + deterministic load-and-maintain runtime.**
-
-The format remains intentionally small and backward-compatible. Issues, backend mappings, adapters, and real-world examples are welcome.
+**v0.5.0 — experimental backend-neutral retrieval-routing protocol + Rust reference resolver/linter + deterministic agent-maintenance runtime.**
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/AronAxe/MemHooks/main/assets/memhooklogo.png" alt="MemHooks logo" width="300" />
