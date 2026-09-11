@@ -1,0 +1,71 @@
+name: Finalize MemHooks v0.4.1
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/finalize-v0.4.1.yml
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Mark crates.io publication as awaiting first authentication
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("README.md")
+          text = p.read_text(encoding="utf-8")
+          text = text.replace('  <img alt="Crates.io" src="https://img.shields.io/crates/v/memhooks" />\n', '')
+          text = text.replace(
+              'published Rust reference resolver/linter + deterministic load-and-maintain runtime.',
+              'crates.io-ready Rust reference resolver/linter + deterministic load-and-maintain runtime.'
+          )
+          p.write_text(text, encoding="utf-8")
+          PY
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          git rm .github/workflows/finalize-v0.4.1.yml
+          git commit -m "docs: mark crates.io first publish pending authentication"
+          git push
+
+      - name: Create GitHub v0.4.1 release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > /tmp/release-notes.md <<'EOF'
+          **MemHooks v0.4.1** is the crates.io packaging release for the Rust reference resolver/linter.
+
+          ## Highlights
+
+          - Prepared and package-tested the `memhooks` Rust crate and CLI for crates.io.
+          - Added `cargo install memhooks` and `cargo add memhooks` installation documentation.
+          - Added crates.io/docs.rs metadata and a lean explicit crate package.
+          - Added `cargo publish --dry-run` to CI; the exact crate package passes the publish simulation.
+          - Updated README and Agent Skill metadata to v0.4.1.
+          - The `memhooks/v1` protocol itself is unchanged from v0.4.0.
+
+          ## crates.io status
+
+          The first crates.io upload requires the crate owner's one-time authenticated API token. The repository has no crates.io token configured yet, so the actual registry upload is intentionally not claimed by this release. Once that token is added, the prepared publisher can be rerun without changing the crate.
+          EOF
+
+          if gh release view v0.4.1 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            exit 0
+          fi
+
+          gh release create v0.4.1 \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "1f20323694e4700d8d7091c9b4c0afb8aa91fa8b" \
+            --title "MemHooks v0.4.1" \
+            --notes-file /tmp/release-notes.md
