@@ -1,23 +1,22 @@
 #!/usr/bin/env python3
 """Zero-LLM MemHooks maintainer.
 
-Three jobs:
+The maintainer is primarily for agent/runtime use, not manual hook authoring.
 
-1. ``event`` (default): consume a runtime hook event on stdin, extract touched
-   project paths, and maintain a tiny auto-recall block in the nearest
-   MEMHOOKS.md files. No model call is made.
-2. ``note``: add one explicit retrieval cue discovered by the *current* agent
-   while it is already reasoning. Optional priority, role applicability, memory
-   categories, connection emphasis, and typed/salient entities can be preserved
-   with the cue.
+Jobs:
+1. ``event`` (default): inspect a runtime tool event and maintain small path-based
+   retrieval anchors without an LLM call.
+2. ``note``: preserve one semantic retrieval cue already discovered by the current
+   agent, including generic routing metadata and optional opaque backend hints.
 3. ``init``: enable MemHooks at a repository root.
 
-The script never writes memory content. It writes retrieval cues only.
+The script never writes memory content. It writes retrieval-routing metadata only.
 """
 
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import math
 import os
@@ -35,17 +34,39 @@ NOTES_START = "<!-- memhooks:notes:start -->"
 NOTES_END = "<!-- memhooks:notes:end -->"
 MAX_AUTO_PATHS = int(os.getenv("MEMHOOKS_AUTO_PATHS", "12"))
 MAX_NOTES = int(os.getenv("MEMHOOKS_MAX_NOTES", "16"))
-VALID_MEMORY_TYPES = ("world", "experience", "observation")
-VALID_CONNECTION_TYPES = ("semantic", "temporal", "entity", "causal")
 SKIP_PARTS = {
-    ".git", ".hg", ".svn", ".venv", "venv", "node_modules", "dist", "build",
-    "__pycache__", ".idea", ".vscode", ".pytest_cache", ".mypy_cache",
+    ".git",
+    ".hg",
+    ".svn",
+    ".venv",
+    "venv",
+    "node_modules",
+    "dist",
+    "build",
+    "__pycache__",
+    ".idea",
+    ".vscode",
+    ".pytest_cache",
+    ".mypy_cache",
 }
 PATH_KEYS = {
-    "path", "file", "filename", "file_path", "filepath", "target", "source",
-    "destination", "dest", "output", "output_path", "workdir", "cwd",
+    "path",
+    "file",
+    "filename",
+    "file_path",
+    "filepath",
+    "target",
+    "source",
+    "destination",
+    "dest",
+    "output",
+    "output_path",
+    "workdir",
+    "cwd",
 }
-FILE_TOKEN = re.compile(r"(?<![\w:/.-])([A-Za-z0-9_.~/-]+\.[A-Za-z0-9_.-]{1,12})(?![\w.-])")
+FILE_TOKEN = re.compile(
+    r"(?<![\w:/.-])([A-Za-z0-9_.~/-]+\.[A-Za-z0-9_.-]{1,12})(?![\w.-])"
+)
 
 
 def _git_root(cwd: Path) -> Path | None:
@@ -65,11 +86,10 @@ def _git_root(cwd: Path) -> Path | None:
 
 
 def _nearest_enabled_root(cwd: Path) -> Path | None:
-    """Return git root if it contains MEMHOOKS.md, else highest hooked ancestor."""
     git = _git_root(cwd)
     if git and (git / HOOK_FILENAME).is_file():
         return git
-    hits = [d for d in (cwd, *cwd.parents) if (d / HOOK_FILENAME).is_file()]
+    hits = [directory for directory in (cwd, *cwd.parents) if (directory / HOOK_FILENAME).is_file()]
     return hits[-1] if hits else None
 
 
@@ -78,32 +98,32 @@ def _safe_relative(candidate: str, cwd: Path, root: Path) -> Path | None:
     if not candidate or candidate.startswith(("http://", "https://", "git@")):
         return None
     candidate = os.path.expandvars(os.path.expanduser(candidate))
-    p = Path(candidate)
-    if not p.is_absolute():
-        p = cwd / p
+    path = Path(candidate)
+    if not path.is_absolute():
+        path = cwd / path
     try:
-        p = p.resolve(strict=False)
-        rel = p.relative_to(root)
+        path = path.resolve(strict=False)
+        relative = path.relative_to(root)
     except Exception:
         return None
-    if not rel.parts or any(part in SKIP_PARTS for part in rel.parts):
+    if not relative.parts or any(part in SKIP_PARTS for part in relative.parts):
         return None
-    if p.name == HOOK_FILENAME:
+    if path.name == HOOK_FILENAME:
         return None
-    if p.exists() and p.is_dir():
+    if path.exists() and path.is_dir():
         return None
-    if not p.suffix and not p.exists():
+    if not path.suffix and not path.exists():
         return None
-    return rel
+    return relative
 
 
 def _strings(value: Any) -> Iterable[tuple[str | None, str]]:
     if isinstance(value, dict):
-        for k, v in value.items():
-            if isinstance(v, str):
-                yield str(k).lower(), v
+        for key, nested in value.items():
+            if isinstance(nested, str):
+                yield str(key).lower(), nested
             else:
-                yield from _strings(v)
+                yield from _strings(nested)
     elif isinstance(value, list):
         for item in value:
             yield from _strings(item)
@@ -117,25 +137,25 @@ def _extract_paths(tool_input: Any, cwd: Path, root: Path) -> set[Path]:
         candidates: list[str] = []
         if key in PATH_KEYS:
             candidates.append(text)
-        candidates.extend(m.group(1) for m in FILE_TOKEN.finditer(text))
-        if any(ch in text for ch in " /\\"):
+        candidates.extend(match.group(1) for match in FILE_TOKEN.finditer(text))
+        if any(character in text for character in " /\\"):
             try:
-                candidates.extend(tok for tok in shlex.split(text) if "/" in tok or "\\" in tok)
+                candidates.extend(
+                    token for token in shlex.split(text) if "/" in token or "\\" in token
+                )
             except Exception:
                 pass
         for raw in candidates:
-            rel = _safe_relative(raw, cwd, root)
-            if rel is not None:
-                found.add(rel)
+            relative = _safe_relative(raw, cwd, root)
+            if relative is not None:
+                found.add(relative)
     return found
 
 
 def _read(path: Path) -> str:
     try:
         return path.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        return ""
-    except Exception:
+    except (FileNotFoundError, OSError):
         return ""
 
 
@@ -146,7 +166,7 @@ def _replace_block(text: str, start: str, end: str, block: str) -> str:
         pieces = [before, block.rstrip()]
         if after:
             pieces.append(after.rstrip())
-        return "\n\n".join(p for p in pieces if p) + "\n"
+        return "\n\n".join(piece for piece in pieces if piece) + "\n"
     base = text.rstrip()
     return base + ("\n\n" if base else "") + block.rstrip() + "\n"
 
@@ -157,11 +177,11 @@ def _ensure_base(path: Path) -> str:
         return text
     return (
         "---\n"
-        "schema: memhooks/v1\n"
+        "schema: memhooks/v2\n"
         "inherits: true\n"
-        "memory_types: []\n"
-        "connection_types: []\n"
         "entities: []\n"
+        "resources: []\n"
+        "backends: {}\n"
         "---\n\n"
         "# MemHooks\n"
     )
@@ -175,7 +195,7 @@ def _parse_auto_paths(text: str) -> list[str]:
 
 
 def _auto_block(paths: list[str]) -> str:
-    listing = "\n".join(f"- `{p}`" for p in paths)
+    listing = "\n".join(f"- `{path}`" for path in paths)
     return (
         f"{AUTO_START}\n"
         "## Auto-maintained recall anchors\n\n"
@@ -183,22 +203,21 @@ def _auto_block(paths: list[str]) -> str:
         "failures, fixes, rejected approaches, and unresolved issues** involving:\n"
         f"{listing}\n\n"
         "These are retrieval cues, not memory contents. This deterministic path "
-        "maintainer does not guess priority, role applicability, memory categories, "
-        "connection emphasis, entity types, or entity salience. If this turn "
-        "establishes a durable semantic cue, record it with the MemHooks note "
-        "helper before finishing.\n"
+        "maintainer does not guess semantic priority, agent roles, entities, "
+        "resources, or backend-specific controls. The active agent may add a "
+        "semantic cue when those details are actually known.\n"
         f"{AUTO_END}"
     )
 
 
-def _update_directory(root: Path, rel_files: Iterable[Path]) -> int:
+def _update_directory(root: Path, relative_files: Iterable[Path]) -> int:
     grouped: dict[Path, list[str]] = {}
-    for rel in rel_files:
-        grouped.setdefault(rel.parent, []).append(rel.as_posix())
+    for relative in relative_files:
+        grouped.setdefault(relative.parent, []).append(relative.as_posix())
 
     writes = 0
-    for rel_dir, additions in grouped.items():
-        directory = root / rel_dir
+    for relative_directory, additions in grouped.items():
+        directory = root / relative_directory
         if not directory.is_dir():
             directory = root
         hook = directory / HOOK_FILENAME
@@ -227,6 +246,57 @@ def _valid_unit_interval(value: Any) -> float | None:
     return number
 
 
+def _normalize_entity(raw: Any) -> dict[str, Any] | str | None:
+    if isinstance(raw, str):
+        name = " ".join(raw.strip().split())
+        return name or None
+    if not isinstance(raw, dict):
+        return None
+    name = " ".join(str(raw.get("name") or raw.get("text") or "").strip().split())
+    if not name:
+        return None
+    entity: dict[str, Any] = {"name": name}
+    entity_type = str(raw.get("type") or "").strip()
+    if entity_type:
+        entity["type"] = entity_type
+    if "salience" in raw:
+        salience = _valid_unit_interval(raw.get("salience"))
+        if salience is not None:
+            entity["salience"] = salience
+    return entity
+
+
+def _normalize_resource(raw: Any) -> dict[str, Any] | str | None:
+    if isinstance(raw, str):
+        name = " ".join(raw.strip().split())
+        return name or None
+    if not isinstance(raw, dict):
+        return None
+    name = " ".join(str(raw.get("name") or raw.get("text") or "").strip().split())
+    if not name:
+        return None
+    resource: dict[str, Any] = {"name": name}
+    kind = str(raw.get("kind") or "").strip()
+    if kind:
+        resource["kind"] = kind
+    if "salience" in raw:
+        salience = _valid_unit_interval(raw.get("salience"))
+        if salience is not None:
+            resource["salience"] = salience
+    return resource
+
+
+def _normalize_backends(value: Any) -> dict[str, dict[str, Any]]:
+    if not isinstance(value, dict):
+        return {}
+    normalized: dict[str, dict[str, Any]] = {}
+    for provider, config in value.items():
+        provider_name = str(provider).strip()
+        if provider_name and isinstance(config, dict):
+            normalized[provider_name] = copy.deepcopy(config)
+    return normalized
+
+
 def _normalize_note(value: Any) -> dict[str, Any] | None:
     if isinstance(value, str):
         query = " ".join(value.strip().split())
@@ -248,50 +318,40 @@ def _normalize_note(value: Any) -> dict[str, Any] | None:
     when = value.get("when")
     if isinstance(when, dict):
         roles = [
-            " ".join(str(v).strip().split())
-            for v in (when.get("roles") or [])
-            if " ".join(str(v).strip().split())
+            " ".join(str(role).strip().split())
+            for role in (when.get("roles") or [])
+            if " ".join(str(role).strip().split())
         ]
         if roles:
             note["when"] = {"roles": list(dict.fromkeys(roles))}
 
-    memory_types = [
-        str(v).strip().lower()
-        for v in (value.get("memory_types") or [])
-        if str(v).strip().lower() in VALID_MEMORY_TYPES
-    ]
-    if memory_types:
-        note["memory_types"] = list(dict.fromkeys(memory_types))
-
-    connection_types = [
-        str(v).strip().lower()
-        for v in (value.get("connection_types") or [])
-        if str(v).strip().lower() in VALID_CONNECTION_TYPES
-    ]
-    if connection_types:
-        note["connection_types"] = list(dict.fromkeys(connection_types))
-
-    entities: list[dict[str, Any] | str] = []
+    entities = []
     for raw in value.get("entities") or []:
-        if isinstance(raw, str):
-            name = " ".join(raw.strip().split())
-            if name:
-                entities.append(name)
-        elif isinstance(raw, dict):
-            name = " ".join(str(raw.get("name") or "").strip().split())
-            if not name:
-                continue
-            entity: dict[str, Any] = {"name": name}
-            entity_type = str(raw.get("type") or "").strip()
-            if entity_type:
-                entity["type"] = entity_type
-            if "salience" in raw:
-                salience = _valid_unit_interval(raw.get("salience"))
-                if salience is not None:
-                    entity["salience"] = salience
+        entity = _normalize_entity(raw)
+        if entity is not None and entity not in entities:
             entities.append(entity)
     if entities:
         note["entities"] = entities
+
+    resources = []
+    for raw in value.get("resources") or []:
+        resource = _normalize_resource(raw)
+        if resource is not None and resource not in resources:
+            resources.append(resource)
+    if resources:
+        note["resources"] = resources
+
+    tags = [
+        " ".join(str(tag).strip().split())
+        for tag in (value.get("tags") or [])
+        if " ".join(str(tag).strip().split())
+    ]
+    if tags:
+        note["tags"] = list(dict.fromkeys(tags))
+
+    backends = _normalize_backends(value.get("backends"))
+    if backends:
+        note["backends"] = backends
 
     return note
 
@@ -301,8 +361,6 @@ def _notes_from(text: str) -> list[dict[str, Any]]:
         return []
 
     body = text.split(NOTES_START, 1)[1].split(NOTES_END, 1)[0]
-
-    # Structured format: a fenced JSON array.
     match = re.search(r"```json\s*(\[.*?\])\s*```", body, flags=re.S | re.I)
     if match:
         try:
@@ -317,7 +375,6 @@ def _notes_from(text: str) -> list[dict[str, Any]]:
                     notes.append(note)
         return notes
 
-    # Backward compatibility with old markdown bullet notes.
     notes = []
     for item in re.findall(r"^- (.+)$", body, flags=re.M):
         note = _normalize_note(item)
@@ -334,11 +391,10 @@ def _notes_block(notes: list[dict[str, Any]]) -> str:
         "```json\n"
         f"{payload}\n"
         "```\n\n"
-        "These are routing cues only. `priority` ranks recall requests under "
-        "context pressure; `when.roles` scopes applicability; `memory_types` "
-        "classify memories; `connection_types` describe semantic/temporal/entity/"
-        "causal emphasis; entity `type` and `salience` apply only to the entity. "
-        "Durable facts belong in the memory backend.\n"
+        "These are routing cues only. `priority`, `when.roles`, entities, resources, "
+        "and tags are backend-neutral. Provider-native controls belong only under "
+        "the cue's `backends.<provider>` object. Durable facts remain in the memory "
+        "backend rather than in this file.\n"
         f"{NOTES_END}"
     )
 
@@ -347,26 +403,53 @@ def _parse_entity_arg(raw: str) -> dict[str, Any] | str:
     raw = raw.strip()
     if not raw:
         raise ValueError("empty entity")
-
     if raw.startswith("{"):
-        obj = json.loads(raw)
-        if not isinstance(obj, dict):
-            raise ValueError("entity JSON must be an object")
-        name = " ".join(str(obj.get("name") or obj.get("text") or "").strip().split())
-        if not name:
-            raise ValueError("entity JSON requires name/text")
-        entity: dict[str, Any] = {"name": name}
-        entity_type = str(obj.get("type") or "").strip()
-        if entity_type:
-            entity["type"] = entity_type
-        if "salience" in obj:
-            salience = _valid_unit_interval(obj.get("salience"))
-            if salience is None:
-                raise ValueError("entity salience must be between 0.0 and 1.0")
-            entity["salience"] = salience
+        parsed = json.loads(raw)
+        entity = _normalize_entity(parsed)
+        if entity is None:
+            raise ValueError("entity JSON requires a non-empty name/text")
+        if "salience" in parsed and _valid_unit_interval(parsed.get("salience")) is None:
+            raise ValueError("entity salience must be between 0.0 and 1.0")
         return entity
-
     return " ".join(raw.split())
+
+
+def _parse_resource_arg(raw: str) -> dict[str, Any] | str:
+    raw = raw.strip()
+    if not raw:
+        raise ValueError("empty resource")
+    if raw.startswith("{"):
+        parsed = json.loads(raw)
+        resource = _normalize_resource(parsed)
+        if resource is None:
+            raise ValueError("resource JSON requires a non-empty name/text")
+        if "salience" in parsed and _valid_unit_interval(parsed.get("salience")) is None:
+            raise ValueError("resource salience must be between 0.0 and 1.0")
+        return resource
+    return " ".join(raw.split())
+
+
+def _parse_backends_arg(raw: str) -> dict[str, dict[str, Any]]:
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"backends must be valid JSON: {exc}") from exc
+    if not isinstance(parsed, dict):
+        raise ValueError("backends JSON must be an object")
+    normalized = _normalize_backends(parsed)
+    if len(normalized) != len(parsed):
+        raise ValueError("each backend namespace must map to an object")
+    return normalized
+
+
+def _deep_merge_dict(target: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
+    result = copy.deepcopy(target)
+    for key, value in overlay.items():
+        if isinstance(result.get(key), dict) and isinstance(value, dict):
+            result[key] = _deep_merge_dict(result[key], value)
+        else:
+            result[key] = copy.deepcopy(value)
+    return result
 
 
 def add_note(
@@ -374,9 +457,10 @@ def add_note(
     query: str,
     priority: float | None = None,
     roles: list[str] | None = None,
-    memory_types: list[str] | None = None,
-    connection_types: list[str] | None = None,
     entities: list[dict[str, Any] | str] | None = None,
+    resources: list[dict[str, Any] | str] | None = None,
+    tags: list[str] | None = None,
+    backends: dict[str, dict[str, Any]] | None = None,
 ) -> int:
     root = _nearest_enabled_root(cwd)
     if root is None:
@@ -396,21 +480,25 @@ def add_note(
     ]
     normalized_roles = list(dict.fromkeys(normalized_roles))
 
-    target_dir = next((d for d in (cwd, *cwd.parents) if (d / HOOK_FILENAME).is_file()), cwd)
+    target_directory = next(
+        (directory for directory in (cwd, *cwd.parents) if (directory / HOOK_FILENAME).is_file()),
+        cwd,
+    )
     try:
-        target_dir.relative_to(root)
+        target_directory.relative_to(root)
     except ValueError:
-        target_dir = root
+        target_directory = root
 
-    hook = target_dir / HOOK_FILENAME
+    hook = target_directory / HOOK_FILENAME
     text = _ensure_base(hook)
     notes = _notes_from(text)
 
     incoming_payload: dict[str, Any] = {
         "query": query,
-        "memory_types": memory_types or [],
-        "connection_types": connection_types or [],
         "entities": entities or [],
+        "resources": resources or [],
+        "tags": tags or [],
+        "backends": backends or {},
     }
     if priority is not None:
         incoming_payload["priority"] = priority
@@ -422,7 +510,7 @@ def add_note(
         return 2
 
     replaced = False
-    for i, existing in enumerate(notes):
+    for index, existing in enumerate(notes):
         if existing.get("query") != query:
             continue
         merged = dict(existing)
@@ -438,7 +526,7 @@ def add_note(
             if prior_roles:
                 merged["when"] = {"roles": prior_roles}
 
-        for key in ("memory_types", "connection_types", "entities"):
+        for key in ("entities", "resources", "tags"):
             if key not in incoming:
                 continue
             prior = list(merged.get(key) or [])
@@ -448,7 +536,12 @@ def add_note(
             if prior:
                 merged[key] = prior
 
-        notes[i] = _normalize_note(merged) or incoming
+        if "backends" in incoming:
+            merged["backends"] = _deep_merge_dict(
+                dict(merged.get("backends") or {}), incoming["backends"]
+            )
+
+        notes[index] = _normalize_note(merged) or incoming
         replaced = True
         break
 
@@ -470,20 +563,19 @@ def init(cwd: Path) -> int:
     name = root.name
     hook.write_text(
         "---\n"
-        "schema: memhooks/v1\n"
+        "schema: memhooks/v2\n"
         "inherits: true\n"
-        "memory_types: []\n"
-        "connection_types: []\n"
         "entities: []\n"
+        "resources: []\n"
+        "backends: {}\n"
         "---\n\n"
         "# MemHooks\n\n"
         f"Recall prior decisions, constraints, failures, fixes, rejected approaches, "
         f"and unresolved issues concerning the `{name}` project before making "
         "substantive changes.\n\n"
-        "If a turn establishes a durable non-obvious retrieval cue, record one "
-        "concise future-retrieval question with the MemHooks note helper. Preserve "
-        "priority, role applicability, memory category, connection emphasis, and "
-        "typed/salient entities only when they are actually known; do not guess.\n",
+        "The agent/runtime should maintain concise retrieval cues as the project "
+        "evolves. Provider-native routing belongs under `backends.<provider>` and "
+        "should only be added when the active backend and control are actually known.\n",
         encoding="utf-8",
     )
     return 0
@@ -507,43 +599,31 @@ def handle_event(payload: dict[str, Any]) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Maintain MEMHOOKS.md with zero extra LLM calls.")
+    parser = argparse.ArgumentParser(
+        description="Maintain MEMHOOKS.md retrieval cues with zero extra LLM calls."
+    )
     sub = parser.add_subparsers(dest="cmd")
     sub.add_parser("event", help="read a hook event JSON object from stdin")
 
-    p_init = sub.add_parser("init", help="enable MemHooks in this repository")
-    p_init.add_argument("path", nargs="?", default=".")
+    init_parser = sub.add_parser("init", help="enable MemHooks in this repository")
+    init_parser.add_argument("path", nargs="?", default=".")
 
-    p_note = sub.add_parser("note", help="add one semantic retrieval cue")
-    p_note.add_argument("--cwd", default=".")
-    p_note.add_argument("--query", required=True)
-    p_note.add_argument(
+    note_parser = sub.add_parser("note", help="add one semantic retrieval cue")
+    note_parser.add_argument("--cwd", default=".")
+    note_parser.add_argument("--query", required=True)
+    note_parser.add_argument(
         "--priority",
         type=float,
         default=None,
         help="optional retrieval priority from 0.0 to 1.0",
     )
-    p_note.add_argument(
+    note_parser.add_argument(
         "--role",
         action="append",
         default=[],
-        help="optional applicable role; repeat as needed",
+        help="optional applicable agent role; repeat as needed",
     )
-    p_note.add_argument(
-        "--memory-type",
-        action="append",
-        choices=VALID_MEMORY_TYPES,
-        default=[],
-        help="optional memory category; repeat as needed",
-    )
-    p_note.add_argument(
-        "--connection-type",
-        action="append",
-        choices=VALID_CONNECTION_TYPES,
-        default=[],
-        help="optional connection emphasis; repeat as needed",
-    )
-    p_note.add_argument(
+    note_parser.add_argument(
         "--entity",
         action="append",
         default=[],
@@ -552,29 +632,55 @@ def main() -> int:
             "'{\"name\":\"OpenAI\",\"type\":\"ORG\",\"salience\":0.9}'"
         ),
     )
+    note_parser.add_argument(
+        "--resource",
+        action="append",
+        default=[],
+        help=(
+            "optional named resource or JSON object, e.g. "
+            "'{\"name\":\"auth-design\",\"kind\":\"architecture-note\",\"salience\":0.8}'"
+        ),
+    )
+    note_parser.add_argument(
+        "--tag",
+        action="append",
+        default=[],
+        help="optional backend-neutral tag; repeat as needed",
+    )
+    note_parser.add_argument(
+        "--backends",
+        default="{}",
+        help=(
+            "optional JSON object of opaque provider-native hints, e.g. "
+            "'{\"mem0\":{\"top_k\":8},\"hindsight\":{\"memory_types\":[\"experience\"]}}'"
+        ),
+    )
 
     args = parser.parse_args()
-    cmd = args.cmd or "event"
+    command = args.cmd or "event"
 
-    if cmd == "init":
+    if command == "init":
         return init(Path(args.path).expanduser().resolve())
 
-    if cmd == "note":
+    if command == "note":
         if args.priority is not None and _valid_unit_interval(args.priority) is None:
             parser.error("--priority must be between 0.0 and 1.0")
         try:
             entities = [_parse_entity_arg(raw) for raw in args.entity]
+            resources = [_parse_resource_arg(raw) for raw in args.resource]
+            backends = _parse_backends_arg(args.backends)
         except (ValueError, json.JSONDecodeError) as exc:
-            print(f"Invalid --entity: {exc}", file=sys.stderr)
+            print(f"Invalid MemHooks note metadata: {exc}", file=sys.stderr)
             return 2
         return add_note(
             Path(args.cwd).expanduser().resolve(),
             args.query,
             priority=args.priority,
             roles=args.role,
-            memory_types=args.memory_type,
-            connection_types=args.connection_type,
             entities=entities,
+            resources=resources,
+            tags=args.tag,
+            backends=backends,
         )
 
     try:
