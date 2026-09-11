@@ -1,6 +1,6 @@
 # CLI reference
 
-The `memhooks` binary is the reference command-line resolver and validator for `MEMHOOKS.md`.
+The `memhooks` binary is the reference command-line resolver and validator for `MEMHOOKS.md` using `memhooks/v2`.
 
 ## Commands
 
@@ -15,22 +15,10 @@ memhooks explain [PATH] [--role ROLE ...] [--format human|json]
 
 Validate one file, a subtree, or an entire repository.
 
-### Validate the current subtree
-
 ```bash
 memhooks validate
-```
-
-### Validate a specific file or directory
-
-```bash
 memhooks validate backend/auth
 memhooks validate backend/auth/MEMHOOKS.md
-```
-
-### Validate the whole repository
-
-```bash
 memhooks validate --all
 ```
 
@@ -38,34 +26,26 @@ With `--all`, MemHooks resolves the repository root and scans below it while res
 
 ### Output formats
 
-Human-readable output is the default:
-
 ```bash
 memhooks validate --all --format human
-```
-
-JSON is suitable for custom tooling:
-
-```bash
 memhooks validate --all --format json
-```
-
-SARIF is suitable for CI/code-scanning pipelines:
-
-```bash
 memhooks validate --all --format sarif
 ```
 
+Human is the default. JSON is suitable for tooling. SARIF is suitable for code-scanning/CI pipelines.
+
 ### Exit status
 
-- `0` — no validation errors. Warnings may still be present.
+- `0` — no validation errors; warnings may still be present.
 - `1` — at least one validation error exists.
 
-This makes `memhooks validate --all` safe to use directly as a CI gate.
+The validator checks the v2 **core** plus the structural shape of backend namespaces. It deliberately does not validate arbitrary provider-internal keys inside `backends.<provider>`.
+
+A provider adapter may run additional provider-specific validation separately.
 
 ## `memhooks explain`
 
-`explain` shows the effective root-to-leaf configuration for a target path.
+`explain` resolves the effective root-to-leaf routing configuration for a target path.
 
 ```bash
 memhooks explain backend/auth
@@ -73,28 +53,24 @@ memhooks explain backend/auth
 
 Human output includes:
 
-- resolved repository/root path;
+- resolved repository root;
 - target path;
 - source `MEMHOOKS.md` files in inheritance order;
-- active roles, when supplied;
-- effective recall queries and their source file;
+- active roles when supplied;
+- effective recall queries and source provenance;
 - explicit query priority when present;
 - role applicability;
-- entity and exclusion counts.
+- resolved backend namespace names;
+- entity/resource/exclusion counts.
 
 ### Role filtering
 
 ```bash
 memhooks explain backend/auth --role reviewer
-```
-
-Multiple active roles can be supplied:
-
-```bash
 memhooks explain backend/auth --role reviewer --role architect
 ```
 
-Role matching is exact-string OR matching. A query with no `when.roles` applies to every role. If no active role is supplied, role-restricted queries are preserved rather than discarded.
+Role matching is exact-string OR matching. A query with no `when.roles` applies universally. If no active roles are supplied, role-restricted queries are preserved rather than discarded.
 
 ### JSON explain output
 
@@ -102,7 +78,38 @@ Role matching is exact-string OR matching. A query with no `when.roles` applies 
 memhooks explain backend/auth --role reviewer --format json
 ```
 
-The JSON object exposes resolved scope fields, sources, active roles, effective queries, entities, tags, exclusions, mental models, and Knowledge Pages. It is intended as a stable handoff format for adapters and developer tooling.
+The JSON object exposes:
+
+- `root`
+- `target`
+- `sources`
+- `scope`
+- `sensitivity`
+- `entities`
+- `resources`
+- `tags`
+- `exclude`
+- resolved scope-level `backends`
+- `active_roles`
+- effective `recall_queries`
+
+Each effective structured query carries its merged generic cues and effective provider namespaces. This makes the JSON form useful as a handoff from the reference resolver to runtime adapters.
+
+## Provider configuration in explain output
+
+The CLI **shows** provider configuration but does not interpret it.
+
+For example:
+
+```yaml
+backends:
+  mem0:
+    top_k: 8
+  hindsight:
+    memory_types: [experience]
+```
+
+will appear in the resolved output as provider-owned data. The CLI does not decide what `top_k` or `memory_types` means.
 
 ## CI example
 
@@ -111,7 +118,7 @@ The JSON object exposes resolved scope fields, sources, active roles, effective 
   run: memhooks validate --all
 ```
 
-To emit SARIF for another CI step:
+To emit SARIF:
 
 ```bash
 memhooks validate --all --format sarif > memhooks.sarif
@@ -121,10 +128,11 @@ memhooks validate --all --format sarif > memhooks.sarif
 
 The CLI does not:
 
-- contact Hindsight, OpenViking, Honcho, or another memory backend;
-- execute arbitrary commands from a hook;
+- contact Hindsight, Mem0, OpenViking, Honcho, or another memory backend;
+- validate arbitrary provider-native keys inside a provider namespace;
+- execute commands declared by hook files;
 - create or modify memories;
 - decide prompt privilege/injection level;
 - start a background daemon.
 
-It is deliberately limited to parsing, validation, inheritance resolution, role filtering, and explanation.
+It is deliberately limited to parsing, core validation, inheritance resolution, role filtering, opaque provider configuration merging, and explanation.
