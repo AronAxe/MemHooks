@@ -78,8 +78,8 @@ pub fn parse_hook_str(path: impl AsRef<Path>, source: &str) -> Result<ParsedHook
         ParseError {
             path: path.clone(),
             message: format!("invalid YAML frontmatter: {error}"),
-            line: location.map(|loc| loc.line() + 1),
-            column: location.map(|loc| loc.column()),
+            line: location.as_ref().map(|loc| loc.line() + 1),
+            column: location.as_ref().map(|loc| loc.column()),
         }
     })?;
 
