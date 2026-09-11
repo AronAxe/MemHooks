@@ -6,7 +6,6 @@
   <img alt="Agent Skills" src="https://img.shields.io/badge/Agent%20Skills-compatible-7c4dff" />
   <img alt="Hermes" src="https://img.shields.io/badge/Hermes-compatible-00bcd4" />
   <img alt="Memory agnostic" src="https://img.shields.io/badge/memory-backend%20agnostic-2ea44f" />
-  <img alt="Crates.io" src="https://img.shields.io/crates/v/memhooks" />
   <img alt="Version" src="https://img.shields.io/badge/version-0.4.1-orange" />
   <img alt="License" src="https://img.shields.io/badge/license-MIT-blue" />
 </p>
@@ -331,7 +330,7 @@ If MemHooks is about **retrieving the right context**, [**Token Terminator**](ht
 
 ## Status
 
-**v0.4.1 — experimental convention + published Rust reference resolver/linter + deterministic load-and-maintain runtime.**
+**v0.4.1 — experimental convention + crates.io-ready Rust reference resolver/linter + deterministic load-and-maintain runtime.**
 
 The format remains intentionally small and backward-compatible. Issues, backend mappings, adapters, and real-world examples are welcome.
 
