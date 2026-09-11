@@ -1,5 +1,5 @@
 use crate::model::{BackendMap, Entity, HookFrontmatter, RecallQuery, Resource};
-use crate::parser::{parse_hook, ParseError, ParsedHook};
+use crate::parser::{parse_hook, require_v2_schema, ParseError, ParsedHook};
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 use std::collections::HashSet;
@@ -165,6 +165,7 @@ pub fn parse_chain(target: &Path) -> Result<Vec<ParsedHook>, ParseError> {
     let mut parsed = Vec::new();
     for path in inheritance_chain(target) {
         let hook = parse_hook(&path)?;
+        require_v2_schema(&hook)?;
         if !hook.frontmatter.inherits() {
             parsed.clear();
         }
