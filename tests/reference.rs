@@ -1,6 +1,4 @@
-use memhooks::{
-    parse_hook_str, resolve, validate_parsed, Entity, RecallQuery, Resource, Severity,
-};
+use memhooks::{parse_hook_str, resolve, validate_parsed, Entity, RecallQuery, Resource, Severity};
 use serde_json::json;
 use std::fs;
 use tempfile::tempdir;
@@ -176,11 +174,17 @@ recall_queries:
         .unwrap();
     let provider_json = serde_json::to_value(&query.backends).unwrap();
 
-    assert_eq!(provider_json["mem0"]["filters"]["user_id"], json!("alice"));
+    assert_eq!(
+        provider_json["mem0"]["filters"]["user_id"],
+        json!("alice")
+    );
     assert_eq!(provider_json["mem0"]["threshold"], json!(0.3));
     assert_eq!(provider_json["mem0"]["rerank"], json!(true));
     assert_eq!(provider_json["mem0"]["top_k"], json!(5));
-    assert_eq!(provider_json["hindsight"]["bank"], json!("project-memory"));
+    assert_eq!(
+        provider_json["hindsight"]["bank"],
+        json!("project-memory")
+    );
     assert_eq!(
         provider_json["hindsight"]["memory_types"],
         json!(["experience"])
@@ -205,7 +209,10 @@ resources:
         RecallQuery::Simple(_)
     ));
     assert!(matches!(parsed.frontmatter.entities[0], Entity::Simple(_)));
-    assert!(matches!(parsed.frontmatter.resources[0], Resource::Simple(_)));
+    assert!(matches!(
+        parsed.frontmatter.resources[0],
+        Resource::Simple(_)
+    ));
     assert!(!validate_parsed(&parsed)
         .iter()
         .any(|d| d.severity == Severity::Error));
