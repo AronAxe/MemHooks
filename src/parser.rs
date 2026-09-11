@@ -15,17 +15,14 @@ pub struct ParsedHook {
 impl ParsedHook {
     pub fn line_for_key(&self, key: &str) -> Option<usize> {
         let needle = format!("{key}:");
-        self.source
-            .lines()
-            .enumerate()
-            .find_map(|(index, line)| {
-                let trimmed = line.trim_start();
-                if trimmed.starts_with(&needle) {
-                    Some(index + 1)
-                } else {
-                    None
-                }
-            })
+        self.source.lines().enumerate().find_map(|(index, line)| {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with(&needle) {
+                Some(index + 1)
+            } else {
+                None
+            }
+        })
     }
 }
 

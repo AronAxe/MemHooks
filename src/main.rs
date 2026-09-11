@@ -4,7 +4,11 @@ use serde_json::json;
 use std::path::PathBuf;
 
 #[derive(Debug, Parser)]
-#[command(name = "memhooks", version, about = "Reference resolver and linter for MEMHOOKS.md")]
+#[command(
+    name = "memhooks",
+    version,
+    about = "Reference resolver and linter for MEMHOOKS.md"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Command,

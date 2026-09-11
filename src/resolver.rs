@@ -51,7 +51,9 @@ impl ResolvedHook {
                 let roles = item.value.roles();
                 if role_filter_active
                     && !roles.is_empty()
-                    && !roles.iter().any(|role| active_roles.iter().any(|active| active == role))
+                    && !roles
+                        .iter()
+                        .any(|role| active_roles.iter().any(|active| active == role))
                 {
                     return None;
                 }
