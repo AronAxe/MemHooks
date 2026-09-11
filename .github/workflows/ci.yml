@@ -19,7 +19,9 @@ jobs:
       - name: Validate repository MemHooks
         run: cargo run --quiet -- validate --all
       - name: Verify crates.io package
-        run: cargo publish --dry-run
+        run: |
+          rm -f Cargo.lock
+          cargo publish --dry-run
 
   python:
     runs-on: ubuntu-latest
