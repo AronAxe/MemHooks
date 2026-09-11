@@ -1,50 +1,117 @@
-# Generic / unknown memory backend
+# Generic / unknown backend — memhooks/v2
 
-MemHooks must not become an adapter framework. If the current backend is not listed, **infer the mapping from the tools or documentation already available to you**.
+Use this when the active memory backend does not have a dedicated MemHooks reference.
 
-Use Hindsight, OpenViking, and Honcho as examples of the pattern, not as required dependencies.
+`memhooks/v2` is designed so an unknown backend can still use the **core retrieval intent** without pretending to understand another provider's ontology.
 
-## Step 1 — inspect capabilities
+## Core rule
 
-Identify the backend's native equivalents, if present, for:
+Translate these generic fields to the nearest real capability the backend exposes:
 
-- direct memory search / recall;
-- memory/fact categories or source types;
-- deeper synthesis / reasoning over memory;
-- semantic, temporal, entity, causal, graph, or relationship-aware retrieval;
-- entity-aware lookup and explicit entity typing;
-- tags / metadata filters;
-- temporal filters;
-- hierarchical pages, summaries, mental models, or curated answers;
-- namespace / bank / peer / session selection.
+- `recall_queries`
+- `priority`
+- `when.roles`
+- `entities`
+- `resources`
+- `tags`
+- `exclude`
+- `scope`
+- `sensitivity`
 
-Do not invent capabilities the backend does not expose.
+Do not invent unsupported provider controls.
 
-## Step 2 — map MemHooks fields
+## Unknown provider namespaces
 
-- `recall_queries`: map to the backend's most direct retrieval/search primitive first.
-- `memory_types`: use native memory/fact-category filters when an actual equivalent exists; otherwise treat the values as query context rather than fabricating a filter.
-- `connection_types`: treat semantic/temporal/entity/causal values as retrieval emphasis. Use a native relationship/strategy control only if one exists.
-- `entities`: use native entity filtering when available; otherwise put names into the natural-language query. Preserve `{name, type}` only when the backend can use the type or when it remains useful descriptive metadata; do not guess an entity type.
-- `tags`: use metadata filters when available; otherwise use as query hints.
-- `mental_models`: map to an existing precomputed standing-answer/curated-model construct if one exists. Ignore if there is no equivalent.
-- `knowledge_pages`: map to an existing summary/page/mental-model-like construct if one exists. Do not manufacture one.
-- `exclude`: use negative filtering if supported; otherwise post-filter results before placing them in working context.
+A hook may contain:
 
-If the backend has a `reflect`, `reason`, `synthesize`, `ask memory`, or similar operation, reserve it for hooks requiring synthesis or conflict resolution rather than routine lookup.
+```yaml
+backends:
+  some-provider:
+    custom_option: value
+```
 
-## Step 3 — preserve distinctions
+The MemHooks core preserves this mapping. If the active adapter does not recognize that provider namespace, it should ignore the provider-native mapping rather than reinterpret it as core semantics.
 
-Do not collapse independent dimensions merely because the backend names them differently.
+The core retrieval query still applies unless some other core condition excludes it.
 
-For example, a memory category, a graph/relationship mechanism, and an entity type are conceptually separate things. Translate each to the closest real backend capability and leave unsupported dimensions as descriptive routing hints.
+## Step 1 — inspect actual capabilities
 
-## Step 4 — execute, don't overbuild
+Identify real equivalents, if present, for:
 
-Do not stop the user's task to write integration code. A competent LLM can usually translate a question like `What did we decide about X?` into whatever search primitive the current memory system exposes.
+- direct memory search/recall;
+- metadata filtering;
+- entity-aware or graph-aware search;
+- time-aware search;
+- session/user/agent/project scoping;
+- existing named resources/pages/summaries;
+- deeper synthesis/reasoning over remembered material;
+- result limits, thresholds, reranking, or similar retrieval tuning.
 
-If the mapping proves reusable **and** you have permission to edit this skill, add a concise new reference file under `references/memory-systems/` modeled on the existing three. Keep it descriptive rather than executable unless the backend genuinely requires code.
+Do not infer capabilities merely because another provider has them.
 
-## If there is no memory backend
+## Step 2 — translate core intent
 
-Fail open. Continue the task without claiming recall occurred.
+### `recall_queries`
+
+Use the backend's most direct search/recall primitive first.
+
+### `priority`
+
+Use priority for deciding which recall requests receive context budget. It is not a substitute for the provider's own relevance/confidence score.
+
+### `entities`
+
+Use native entity filters when they genuinely exist; otherwise include important entity names in the natural-language query. Preserve explicit type metadata without guessing a taxonomy.
+
+### `resources`
+
+If the runtime can resolve a named existing resource, retrieve/read it. Do not create a resource merely because it is named by a hook.
+
+### `tags`
+
+Use real metadata filters when available; otherwise use tags as query/routing hints.
+
+### `exclude`
+
+Use native negative filtering if available; otherwise post-filter obsolete/misleading results before they enter context.
+
+### `sensitivity`
+
+Treat as advisory metadata only. Host authorization/security policy remains authoritative.
+
+## Step 3 — use provider namespaces only when understood
+
+When an adapter knows its own namespace, it may interpret those native controls.
+
+For example:
+
+```yaml
+backends:
+  my_memory_system:
+    result_limit: 8
+    search_mode: hybrid
+```
+
+The generic MemHooks resolver will carry this mapping unchanged (subject only to structural inheritance merging). It does not validate whether `result_limit` or `search_mode` exists.
+
+Provider-specific validation belongs in the provider adapter.
+
+## Step 4 — keep retrieval bounded
+
+Retrieve enough to satisfy the applicable cues, not the entire store. Use explicit MemHooks priority/entity/resource salience when context pressure forces choices, then let the backend's own ranking choose among results for a given retrieval request.
+
+## Step 5 — preserve the retrieval-only boundary
+
+Do not call memory write/update/delete operations just because a hook loaded.
+
+If the backend exposes a `reason`, `reflect`, `synthesize`, or equivalent operation, use it only when the current task actually requires synthesis or conflict resolution.
+
+## Adding a new provider mapping
+
+If the mapping becomes reusable, add a dedicated file under `references/memory-systems/` and keep all provider-native vocabulary inside `backends.<provider>`.
+
+Do **not** add provider-specific fields to the universal MemHooks schema merely because one integration benefits from them.
+
+## No memory backend
+
+Fail open. Continue the user's task without pretending retrieval occurred.
