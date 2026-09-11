@@ -1,7 +1,7 @@
 ---
 name: memhooks
 description: Directory-scoped memory retrieval routing. Use MEMHOOKS.md files from the workspace root to the active directory to recall and prioritize the specific past decisions, events, entities, constraints, failures, and context needed before substantive work. Supports weighted retrieval and role-based routing and adapts itself to Hindsight, OpenViking, Honcho, or another available memory system without changing the memory backend.
-version: 0.4.0
+version: 0.4.1
 author: Aron Bijl
 license: MIT
 compatibility: Agent Skills / agentskills.io; Hermes Agent and Hermes Desktop; other skill-capable agents with filesystem access and optional memory tools.
@@ -57,7 +57,7 @@ The loader is in `hooks/hermes/memhooks_pre_llm.py`. It reads files locally and 
 
 ## Reference resolver / validator
 
-v0.4.0 includes the Rust reference implementation. When available, prefer it for validation and for explaining effective inherited routing:
+v0.4.1 includes the Rust reference implementation and packages it for crates.io. When available, prefer it for validation and for explaining effective inherited routing:
 
 ```bash
 memhooks validate --all
