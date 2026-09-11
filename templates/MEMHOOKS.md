@@ -1,69 +1,75 @@
 ---
-schema: memhooks/v1
+schema: memhooks/v2
 inherits: true
 
-# Optional: memory namespace/bank/peer/session hint when the backend has one.
-# bank: project-name
-
-# Optional descriptive scope.
+# Optional descriptive scope. This is backend-neutral metadata.
 # scope: backend/auth
 
-# Optional memory categories. Empty means no type restriction.
-# Hindsight: world | experience | observation
-memory_types: []
-
-# Optional connection emphasis. Empty means no preference.
-# Hindsight: semantic | temporal | entity | causal
-connection_types: []
-
-# Existing standing answers / synthesized resources worth reading first.
-mental_models: []
-knowledge_pages: []
-
-# Specific questions whose answers matter when working in this directory.
-# String entries remain valid. Use the structured form when routing metadata
-# is genuinely known.
+# Concrete questions whose answers matter when an agent works here.
 recall_queries:
   - "What architectural decisions govern this subsystem, and why were they made?"
   - query: "What previous failures, rejected approaches, or important gotchas should be remembered before changing it?"
     # Optional retrieval importance. 0.0 = lowest, 1.0 = highest.
-    # Omit when no explicit priority is intended.
     priority: 0.8
-    # Optional role routing. Role names are project/runtime-defined, not a closed taxonomy.
-    # This query applies when any active role matches. Omit `when` for all roles.
+    # Optional role routing. Role names are project/runtime-defined.
     when:
       roles: [reviewer, refactor]
-    memory_types: []
-    connection_types: []
+    # Query-local generic cues supplement scope-level cues.
     entities: []
+    resources: []
+    tags: []
+    # Provider-native controls belong only here.
+    backends: {}
 
-# Named entities that should sharpen retrieval.
-# Legacy/untyped: - Authentication
-# Structured entries may preserve type and optional retrieval salience:
+# Named retrieval cues.
+# Simple: - Authentication
+# Structured:
 #   - name: OpenAI
 #     type: ORG
 #     salience: 0.9
 entities: []
 
-# Backend-independent relevance hints; use native metadata filters when supported.
+# Named existing resources worth retrieving/reading when relevant.
+# Simple: - auth-architecture
+# Structured:
+#   - name: outage-postmortem
+#     kind: postmortem
+#     salience: 0.9
+resources: []
+
+# Backend-neutral relevance/routing labels.
 tags: []
 
-# Obsolete or misleading memories that should not enter current context.
+# Obsolete or misleading context that should not enter the active task.
 exclude: []
 
-# Advisory only: public | internal | private
+# Advisory only; host policy remains authoritative.
 sensitivity: private
+
+# Opaque provider namespaces. MemHooks preserves/merges these but does not
+# interpret their internal fields.
+backends:
+  # hindsight:
+  #   bank: project-memory
+  #   memory_types: [experience]
+  #   connection_types: [causal, temporal]
+  #   strategy: reflect
+  # mem0:
+  #   filters:
+  #     user_id: project-agent
+  #   top_k: 8
+  #   rerank: true
+  # openviking: {}
+  # honcho: {}
 ---
 
 # Retrieval guidance
 
 Use direct recall for concrete decisions, events, and implementation facts.
-Use deeper memory reasoning only when synthesis is actually required.
+Use deeper synthesis only when the active backend exposes it and the task needs it.
 
-If this turn establishes a durable non-obvious decision, failure, constraint,
-or rejected approach that future work here could miss, record one concise
-future-retrieval question in this hook (or use the runtime's MemHooks note
-helper). When genuinely known, preserve its priority, applicable roles, memory
-category, relevant connection emphasis, and typed/salient entities as routing
-metadata. Do not guess merely to fill fields. Store the actual fact in the
-memory backend, not here.
+This file is agent/runtime-maintained routing metadata, not memory content. Keep
+retrieval cues concise enough to function as an index. When a durable cue is
+learned, preserve only metadata that is actually known. Put provider-native
+controls under `backends.<provider>`; never promote one backend's vocabulary
+into the universal MemHooks core.
