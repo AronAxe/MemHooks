@@ -1,0 +1,70 @@
+name: Publish Token Terminator 0.5.0
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-token-terminator-v0.5.0
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          repository: AronAxe/Token-Terminator
+          ref: main
+
+      - uses: dtolnay/rust-toolchain@1.78.0
+        with:
+          components: rustfmt, clippy
+
+      - name: Check registry
+        id: registry
+        shell: bash
+        run: |
+          set -euo pipefail
+          if curl --fail --silent --show-error \
+            'https://crates.io/api/v1/crates/token-terminator/0.5.0' \
+            >/dev/null 2>&1; then
+            echo 'exists=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'exists=false' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Verify package
+        if: steps.registry.outputs.exists != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fx 'version = "0.5.0"' Cargo.toml >/dev/null
+          cargo fmt --check
+          cargo clippy --all-targets -- -D warnings
+          cargo test
+          RUSTDOCFLAGS='-D warnings' cargo doc --no-deps
+          rm -f Cargo.lock
+          cargo publish --dry-run
+
+      - name: Publish package
+        if: steps.registry.outputs.exists != 'true'
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CRATES_IO_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          token="${CARGO_REGISTRY_TOKEN:-${CRATES_IO_TOKEN:-}}"
+          if [[ -z "$token" ]]; then
+            echo '::error::MemHooks does not currently expose CARGO_REGISTRY_TOKEN or CRATES_IO_TOKEN to Actions.'
+            exit 1
+          fi
+          cargo publish --token "$token"
+
+      - name: Already published
+        if: steps.registry.outputs.exists == 'true'
+        run: echo 'token-terminator 0.5.0 is already on crates.io.'
