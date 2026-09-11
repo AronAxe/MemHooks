@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.5.0 — 2026-09-11
+
+- Introduced `memhooks/v2` as a deliberately backend-neutral protocol core.
+- Removed provider-specific concepts from the universal schema, including top-level `bank`, `memory_types`, `connection_types`, `mental_models`, and `knowledge_pages`.
+- Added opaque `backends.<provider>` namespaces for provider-native retrieval controls; the core preserves and structurally merges provider mappings without interpreting their internal keys.
+- Defined deterministic provider merge semantics: nested mappings recursively merge, while more-local scalar/list values replace parent values; query-local provider configuration overlays resolved scope configuration.
+- Added backend-neutral `resources` cues with optional open `kind` and `salience` metadata.
+- Kept weighted retrieval (`priority`), role routing (`when.roles`), generic entities/salience, tags, exclusions, scope, sensitivity, and filesystem inheritance in the core.
+- Made the reference resolver reject unsupported schemas during resolution rather than silently ignoring unknown provider-specific data.
+- Updated the validator to reject provider-native fields placed directly in the v2 core while leaving provider namespace internals opaque to generic validation.
+- Updated `memhooks explain` JSON/human output to expose generic resources and resolved backend namespaces rather than Hindsight-shaped fields.
+- Reworked the zero-LLM maintainer around v2: removed `--memory-type`/`--connection-type`, added generic resources/tags plus opaque `--backends` JSON, and deep-merges repeated provider hints.
+- Added first-class provider references for Hindsight, OpenViking, Honcho, **Mem0**, and generic/unknown backends.
+- Added current Mem0 v3-style guidance for filters/entity scope, `top_k`, `threshold`, `rerank`, and Graph Memory retrieval while keeping those controls inside `backends.mem0`.
+- Reframed documentation ownership: normal users enable MemHooks; agents/runtimes create, maintain, prune, and size local retrieval cues automatically.
+- Updated templates, nested examples, Agent Skill instructions, Hermes integration docs, quickstart, protocol guide, Rust API docs, CLI docs, troubleshooting, and publishing guidance for v2.
+- Bumped the Rust crate and Agent Skill version to `0.5.0`.
+
 ## 0.4.1 — 2026-09-11
 
 - Published `memhooks` 0.4.1 to crates.io and verified the public install path with `cargo install memhooks --version 0.4.1` plus an installed-binary version check.
