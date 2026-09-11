@@ -26,15 +26,23 @@ knowledge_pages: []
 recall_queries:
   - "What architectural decisions govern this subsystem, and why were they made?"
   - query: "What previous failures, rejected approaches, or important gotchas should be remembered before changing it?"
+    # Optional retrieval importance. 0.0 = lowest, 1.0 = highest.
+    # Omit when no explicit priority is intended.
+    priority: 0.8
+    # Optional role routing. Role names are project/runtime-defined, not a closed taxonomy.
+    # This query applies when any active role matches. Omit `when` for all roles.
+    when:
+      roles: [reviewer, refactor]
     memory_types: []
     connection_types: []
     entities: []
 
 # Named entities that should sharpen retrieval.
 # Legacy/untyped: - Authentication
-# Typed only when known:
+# Structured entries may preserve type and optional retrieval salience:
 #   - name: OpenAI
 #     type: ORG
+#     salience: 0.9
 entities: []
 
 # Backend-independent relevance hints; use native metadata filters when supported.
@@ -55,6 +63,7 @@ Use deeper memory reasoning only when synthesis is actually required.
 If this turn establishes a durable non-obvious decision, failure, constraint,
 or rejected approach that future work here could miss, record one concise
 future-retrieval question in this hook (or use the runtime's MemHooks note
-helper). When genuinely known, preserve its memory category, relevant connection
-emphasis, and typed entities as routing metadata. Do not guess merely to fill
-fields. Store the actual fact in the memory backend, not here.
+helper). When genuinely known, preserve its priority, applicable roles, memory
+category, relevant connection emphasis, and typed/salient entities as routing
+metadata. Do not guess merely to fill fields. Store the actual fact in the
+memory backend, not here.

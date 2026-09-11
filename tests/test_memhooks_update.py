@@ -65,6 +65,37 @@ def test_note_persists_memory_connection_and_entity_types(tmp_path):
     assert '"Authentication"' in text
 
 
+def test_note_persists_priority_roles_and_entity_salience(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init"], cwd=repo, capture_output=True, check=True)
+    assert run_cli("init", str(repo)).returncode == 0
+
+    result = run_cli(
+        "note",
+        "--cwd",
+        str(repo),
+        "--query",
+        "Which security boundaries are non-negotiable?",
+        "--priority",
+        "1.0",
+        "--role",
+        "reviewer",
+        "--role",
+        "architect",
+        "--entity",
+        '{"name":"Authentication","type":"CONCEPT","salience":0.95}',
+    )
+    assert result.returncode == 0
+
+    text = (repo / "MEMHOOKS.md").read_text(encoding="utf-8")
+    assert '"priority": 1.0' in text
+    assert '"when": {' in text
+    assert '"reviewer"' in text
+    assert '"architect"' in text
+    assert '"salience": 0.95' in text
+
+
 def test_repeated_note_enriches_instead_of_erasing_metadata(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -78,6 +109,10 @@ def test_repeated_note_enriches_instead_of_erasing_metadata(tmp_path):
         str(repo),
         "--query",
         query,
+        "--priority",
+        "0.7",
+        "--role",
+        "reviewer",
         "--memory-type",
         "experience",
         "--connection-type",
@@ -90,17 +125,55 @@ def test_repeated_note_enriches_instead_of_erasing_metadata(tmp_path):
         str(repo),
         "--query",
         query,
+        "--priority",
+        "0.9",
+        "--role",
+        "architect",
         "--connection-type",
         "temporal",
         "--entity",
-        '{"name":"OpenAI","type":"ORG"}',
+        '{"name":"OpenAI","type":"ORG","salience":0.8}',
     ).returncode == 0
 
     text = (repo / "MEMHOOKS.md").read_text(encoding="utf-8")
+    assert '"priority": 0.9' in text
+    assert '"reviewer"' in text
+    assert '"architect"' in text
     assert '"experience"' in text
     assert '"causal"' in text
     assert '"temporal"' in text
     assert '"type": "ORG"' in text
+    assert '"salience": 0.8' in text
+
+
+def test_invalid_priority_and_salience_are_rejected(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init"], cwd=repo, capture_output=True, check=True)
+    assert run_cli("init", str(repo)).returncode == 0
+
+    bad_priority = run_cli(
+        "note",
+        "--cwd",
+        str(repo),
+        "--query",
+        "bad priority",
+        "--priority",
+        "1.5",
+    )
+    assert bad_priority.returncode != 0
+
+    bad_salience = run_cli(
+        "note",
+        "--cwd",
+        str(repo),
+        "--query",
+        "bad salience",
+        "--entity",
+        '{"name":"OpenAI","salience":-0.1}',
+    )
+    assert bad_salience.returncode != 0
+    assert "salience" in bad_salience.stderr.lower()
 
 
 def test_legacy_bullet_notes_migrate_to_structured_json(tmp_path):

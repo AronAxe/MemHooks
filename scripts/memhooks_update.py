@@ -7,8 +7,9 @@ Three jobs:
    project paths, and maintain a tiny auto-recall block in the nearest
    MEMHOOKS.md files. No model call is made.
 2. ``note``: add one explicit retrieval cue discovered by the *current* agent
-   while it is already reasoning. Optional memory categories, connection
-   emphasis, and typed entities can be preserved with the cue.
+   while it is already reasoning. Optional priority, role applicability, memory
+   categories, connection emphasis, and typed/salient entities can be preserved
+   with the cue.
 3. ``init``: enable MemHooks at a repository root.
 
 The script never writes memory content. It writes retrieval cues only.
@@ -18,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import shlex
@@ -181,9 +183,10 @@ def _auto_block(paths: list[str]) -> str:
         "failures, fixes, rejected approaches, and unresolved issues** involving:\n"
         f"{listing}\n\n"
         "These are retrieval cues, not memory contents. This deterministic path "
-        "maintainer does not guess memory categories, connection emphasis, or "
-        "entity types. If this turn establishes a durable semantic cue, record it "
-        "with the MemHooks note helper before finishing.\n"
+        "maintainer does not guess priority, role applicability, memory categories, "
+        "connection emphasis, entity types, or entity salience. If this turn "
+        "establishes a durable semantic cue, record it with the MemHooks note "
+        "helper before finishing.\n"
         f"{AUTO_END}"
     )
 
@@ -214,6 +217,16 @@ def _update_directory(root: Path, rel_files: Iterable[Path]) -> int:
     return writes
 
 
+def _valid_unit_interval(value: Any) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number) or not 0.0 <= number <= 1.0:
+        return None
+    return number
+
+
 def _normalize_note(value: Any) -> dict[str, Any] | None:
     if isinstance(value, str):
         query = " ".join(value.strip().split())
@@ -226,6 +239,21 @@ def _normalize_note(value: Any) -> dict[str, Any] | None:
         return None
 
     note: dict[str, Any] = {"query": query}
+
+    if "priority" in value:
+        priority = _valid_unit_interval(value.get("priority"))
+        if priority is not None:
+            note["priority"] = priority
+
+    when = value.get("when")
+    if isinstance(when, dict):
+        roles = [
+            " ".join(str(v).strip().split())
+            for v in (when.get("roles") or [])
+            if " ".join(str(v).strip().split())
+        ]
+        if roles:
+            note["when"] = {"roles": list(dict.fromkeys(roles))}
 
     memory_types = [
         str(v).strip().lower()
@@ -243,7 +271,7 @@ def _normalize_note(value: Any) -> dict[str, Any] | None:
     if connection_types:
         note["connection_types"] = list(dict.fromkeys(connection_types))
 
-    entities: list[dict[str, str] | str] = []
+    entities: list[dict[str, Any] | str] = []
     for raw in value.get("entities") or []:
         if isinstance(raw, str):
             name = " ".join(raw.strip().split())
@@ -253,10 +281,14 @@ def _normalize_note(value: Any) -> dict[str, Any] | None:
             name = " ".join(str(raw.get("name") or "").strip().split())
             if not name:
                 continue
-            entity: dict[str, str] = {"name": name}
+            entity: dict[str, Any] = {"name": name}
             entity_type = str(raw.get("type") or "").strip()
             if entity_type:
                 entity["type"] = entity_type
+            if "salience" in raw:
+                salience = _valid_unit_interval(raw.get("salience"))
+                if salience is not None:
+                    entity["salience"] = salience
             entities.append(entity)
     if entities:
         note["entities"] = entities
@@ -270,7 +302,7 @@ def _notes_from(text: str) -> list[dict[str, Any]]:
 
     body = text.split(NOTES_START, 1)[1].split(NOTES_END, 1)[0]
 
-    # New structured format: a fenced JSON array.
+    # Structured format: a fenced JSON array.
     match = re.search(r"```json\s*(\[.*?\])\s*```", body, flags=re.S | re.I)
     if match:
         try:
@@ -285,7 +317,7 @@ def _notes_from(text: str) -> list[dict[str, Any]]:
                     notes.append(note)
         return notes
 
-    # Backward compatibility with the old markdown bullet notes.
+    # Backward compatibility with old markdown bullet notes.
     notes = []
     for item in re.findall(r"^- (.+)$", body, flags=re.M):
         note = _normalize_note(item)
@@ -302,15 +334,16 @@ def _notes_block(notes: list[dict[str, Any]]) -> str:
         "```json\n"
         f"{payload}\n"
         "```\n\n"
-        "These are routing cues only. `memory_types` classify memories; "
-        "`connection_types` describe semantic/temporal/entity/causal emphasis; "
-        "entity `type` applies only to the entity itself. Durable facts belong "
-        "in the memory backend.\n"
+        "These are routing cues only. `priority` ranks recall requests under "
+        "context pressure; `when.roles` scopes applicability; `memory_types` "
+        "classify memories; `connection_types` describe semantic/temporal/entity/"
+        "causal emphasis; entity `type` and `salience` apply only to the entity. "
+        "Durable facts belong in the memory backend.\n"
         f"{NOTES_END}"
     )
 
 
-def _parse_entity_arg(raw: str) -> dict[str, str] | str:
+def _parse_entity_arg(raw: str) -> dict[str, Any] | str:
     raw = raw.strip()
     if not raw:
         raise ValueError("empty entity")
@@ -322,10 +355,15 @@ def _parse_entity_arg(raw: str) -> dict[str, str] | str:
         name = " ".join(str(obj.get("name") or obj.get("text") or "").strip().split())
         if not name:
             raise ValueError("entity JSON requires name/text")
-        entity: dict[str, str] = {"name": name}
+        entity: dict[str, Any] = {"name": name}
         entity_type = str(obj.get("type") or "").strip()
         if entity_type:
             entity["type"] = entity_type
+        if "salience" in obj:
+            salience = _valid_unit_interval(obj.get("salience"))
+            if salience is None:
+                raise ValueError("entity salience must be between 0.0 and 1.0")
+            entity["salience"] = salience
         return entity
 
     return " ".join(raw.split())
@@ -334,9 +372,11 @@ def _parse_entity_arg(raw: str) -> dict[str, str] | str:
 def add_note(
     cwd: Path,
     query: str,
+    priority: float | None = None,
+    roles: list[str] | None = None,
     memory_types: list[str] | None = None,
     connection_types: list[str] | None = None,
-    entities: list[dict[str, str] | str] | None = None,
+    entities: list[dict[str, Any] | str] | None = None,
 ) -> int:
     root = _nearest_enabled_root(cwd)
     if root is None:
@@ -346,6 +386,15 @@ def add_note(
     query = " ".join(query.strip().split())
     if not query:
         return 2
+
+    if priority is not None and _valid_unit_interval(priority) is None:
+        print("MemHooks note priority must be between 0.0 and 1.0.", file=sys.stderr)
+        return 2
+
+    normalized_roles = [
+        " ".join(role.strip().split()) for role in (roles or []) if role.strip()
+    ]
+    normalized_roles = list(dict.fromkeys(normalized_roles))
 
     target_dir = next((d for d in (cwd, *cwd.parents) if (d / HOOK_FILENAME).is_file()), cwd)
     try:
@@ -357,14 +406,18 @@ def add_note(
     text = _ensure_base(hook)
     notes = _notes_from(text)
 
-    incoming = _normalize_note(
-        {
-            "query": query,
-            "memory_types": memory_types or [],
-            "connection_types": connection_types or [],
-            "entities": entities or [],
-        }
-    )
+    incoming_payload: dict[str, Any] = {
+        "query": query,
+        "memory_types": memory_types or [],
+        "connection_types": connection_types or [],
+        "entities": entities or [],
+    }
+    if priority is not None:
+        incoming_payload["priority"] = priority
+    if normalized_roles:
+        incoming_payload["when"] = {"roles": normalized_roles}
+
+    incoming = _normalize_note(incoming_payload)
     if incoming is None:
         return 2
 
@@ -373,6 +426,18 @@ def add_note(
         if existing.get("query") != query:
             continue
         merged = dict(existing)
+
+        if "priority" in incoming:
+            merged["priority"] = incoming["priority"]
+
+        if "when" in incoming:
+            prior_roles = list((merged.get("when") or {}).get("roles") or [])
+            for role in incoming["when"].get("roles") or []:
+                if role not in prior_roles:
+                    prior_roles.append(role)
+            if prior_roles:
+                merged["when"] = {"roles": prior_roles}
+
         for key in ("memory_types", "connection_types", "entities"):
             if key not in incoming:
                 continue
@@ -382,6 +447,7 @@ def add_note(
                     prior.append(item)
             if prior:
                 merged[key] = prior
+
         notes[i] = _normalize_note(merged) or incoming
         replaced = True
         break
@@ -416,8 +482,8 @@ def init(cwd: Path) -> int:
         "substantive changes.\n\n"
         "If a turn establishes a durable non-obvious retrieval cue, record one "
         "concise future-retrieval question with the MemHooks note helper. Preserve "
-        "memory category, connection emphasis, and typed entities only when they "
-        "are actually known; do not guess.\n",
+        "priority, role applicability, memory category, connection emphasis, and "
+        "typed/salient entities only when they are actually known; do not guess.\n",
         encoding="utf-8",
     )
     return 0
@@ -452,6 +518,18 @@ def main() -> int:
     p_note.add_argument("--cwd", default=".")
     p_note.add_argument("--query", required=True)
     p_note.add_argument(
+        "--priority",
+        type=float,
+        default=None,
+        help="optional retrieval priority from 0.0 to 1.0",
+    )
+    p_note.add_argument(
+        "--role",
+        action="append",
+        default=[],
+        help="optional applicable role; repeat as needed",
+    )
+    p_note.add_argument(
         "--memory-type",
         action="append",
         choices=VALID_MEMORY_TYPES,
@@ -469,7 +547,10 @@ def main() -> int:
         "--entity",
         action="append",
         default=[],
-        help='optional entity name or JSON object, e.g. \'{"name":"OpenAI","type":"ORG"}\'',
+        help=(
+            "optional entity name or JSON object, e.g. "
+            "'{\"name\":\"OpenAI\",\"type\":\"ORG\",\"salience\":0.9}'"
+        ),
     )
 
     args = parser.parse_args()
@@ -479,6 +560,8 @@ def main() -> int:
         return init(Path(args.path).expanduser().resolve())
 
     if cmd == "note":
+        if args.priority is not None and _valid_unit_interval(args.priority) is None:
+            parser.error("--priority must be between 0.0 and 1.0")
         try:
             entities = [_parse_entity_arg(raw) for raw in args.entity]
         except (ValueError, json.JSONDecodeError) as exc:
@@ -487,6 +570,8 @@ def main() -> int:
         return add_note(
             Path(args.cwd).expanduser().resolve(),
             args.query,
+            priority=args.priority,
+            roles=args.role,
             memory_types=args.memory_type,
             connection_types=args.connection_type,
             entities=entities,
