@@ -1,0 +1,97 @@
+name: Publish MemHooks v0.5.1
+
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/publish-v0.5.1.yml]
+
+permissions:
+  contents: write
+
+env:
+  RELEASE_VERSION: 0.5.1
+  RELEASE_TAG: v0.5.1
+  RELEASE_COMMIT: 6b85d2b3f75e21f6abad7114f91abcf167c1a854
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Verify release version
+        run: |
+          test "$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)" = "$RELEASE_VERSION"
+          test "$(git show "$RELEASE_COMMIT":Cargo.toml | sed -n 's/^version = "\([^"]*\)"/\1/p' | head -1)" = "$RELEASE_VERSION"
+
+      - name: Publish crate if needed
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          if curl -fsSL "https://crates.io/api/v1/crates/memhooks/$RELEASE_VERSION" >/dev/null 2>&1; then
+            echo "memhooks $RELEASE_VERSION is already on crates.io; skipping publish."
+          else
+            cargo publish --locked
+          fi
+
+      - name: Verify public crates.io install
+        run: |
+          for attempt in 1 2 3 4 5 6; do
+            if cargo install memhooks --version "$RELEASE_VERSION" --locked --force; then
+              break
+            fi
+            if [ "$attempt" -eq 6 ]; then
+              exit 1
+            fi
+            sleep 10
+          done
+          memhooks --version | grep -F "memhooks $RELEASE_VERSION"
+
+      - name: Create GitHub release if needed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "$RELEASE_TAG already exists; leaving it unchanged."
+          else
+            cat > /tmp/release-notes.md <<'EOF'
+          **MemHooks v0.5.1** is a hardening release for `memhooks/v2`, driven by an end-to-end repository audit.
+
+          ## Highlights
+
+          - Unified writer, resolver, CLI, and Hermes around one normative YAML-frontmatter data path.
+          - Moved maintenance into the Rust reference implementation with atomic writes and exclusive locking.
+          - Hardened Git-root containment, explicit path extraction, schema enforcement, and repository-text trust boundaries.
+          - Added source-attributed Markdown guidance to the resolver/adapter handoff.
+          - More-local same-text queries now override parent metadata instead of causing duplicate retrievals.
+          - Reworked parsing/validation so malformed structured entries get targeted diagnostics and exact YAML line/column locations.
+          - Improved SARIF with repository-relative paths and rule metadata.
+          - Replaced the deprecated YAML dependency, committed `Cargo.lock`, packaged the normative references, and made the declared Rust 1.78 floor executable in CI.
+          - Expanded CI to Clippy, full tests, doctests, Rustdoc, self-validation, packaging, Rust 1.78 MSRV, Python 3.10/3.12, Ruff, and pytest.
+          - Added end-to-end regressions for writer→resolver visibility, concurrent writes, root containment, guidance handoff, SARIF, malformed entries, and override semantics.
+
+          Protocol schema remains **`memhooks/v2`**; this patch release is compatible at the protocol level.
+          EOF
+            gh release create "$RELEASE_TAG" \
+              --target "$RELEASE_COMMIT" \
+              --title "MemHooks v0.5.1" \
+              --notes-file /tmp/release-notes.md
+          fi
+
+      - name: Remove one-shot publisher
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git checkout main
+          git pull --ff-only origin main
+          if [ -f .github/workflows/publish-v0.5.1.yml ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git rm .github/workflows/publish-v0.5.1.yml
+            git commit -m "chore: remove v0.5.1 publisher"
+            git push origin main
+          fi
