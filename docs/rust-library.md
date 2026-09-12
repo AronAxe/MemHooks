@@ -225,9 +225,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-Consume a runtime `post_tool_call` event:
+Consume a runtime `post_tool_call` event. This example is `no_run` because it intentionally demonstrates a write-capable maintenance API:
 
-```rust
+```rust,no_run
 use memhooks::handle_event;
 use serde_json::json;
 
