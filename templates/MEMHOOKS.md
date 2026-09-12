@@ -48,19 +48,21 @@ sensitivity: private
 
 # Opaque provider namespaces. MemHooks preserves/merges these but does not
 # interpret their internal fields.
-backends:
-  # hindsight:
-  #   bank: project-memory
-  #   memory_types: [experience]
-  #   connection_types: [causal, temporal]
-  #   strategy: reflect
-  # mem0:
-  #   filters:
-  #     user_id: project-agent
-  #   top_k: 8
-  #   rerank: true
-  # openviking: {}
-  # honcho: {}
+backends: {}
+# Example provider mappings, when genuinely needed:
+# backends:
+#   hindsight:
+#     bank: project-memory
+#     memory_types: [experience]
+#     connection_types: [causal, temporal]
+#     strategy: reflect
+#   mem0:
+#     filters:
+#       user_id: project-agent
+#     top_k: 8
+#     rerank: true
+#   openviking: {}
+#   honcho: {}
 ---
 
 # Retrieval guidance
