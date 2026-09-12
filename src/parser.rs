@@ -196,8 +196,8 @@ fn walk_marked_yaml(
 
 fn location_from_mark(node: &MarkedYamlOwned) -> SourceLocation {
     SourceLocation {
-        // Saphyr lines/columns are zero-based and this YAML starts at source line 2.
-        line: node.span.start.line() + 2,
-        column: node.span.start.col() + 1,
+        // Saphyr markers are 1-indexed; the YAML substring starts on source line 2.
+        line: node.span.start.line() + 1,
+        column: node.span.start.col(),
     }
 }
