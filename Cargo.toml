@@ -29,6 +29,8 @@ clap = { version = "=4.5.27", features = ["derive"] }
 fs2 = "0.4"
 ignore = "=0.4.23"
 globset = "=0.4.15"
+# Keep serde_yaml_ng/hashlink from selecting the Edition-2024 indexmap line.
+indexmap = "=2.7.1"
 # 0.0.6 provides marked YAML spans while remaining compatible with the Rust 1.78 floor.
 saphyr = { version = "=0.0.6", default-features = false }
 # Saphyr 0.0.6 accepts newer 5.x releases; keep this on a Rust-1.78-compatible line.
