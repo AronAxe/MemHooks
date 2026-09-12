@@ -83,7 +83,7 @@ fn automatic_event_anchors_only_explicit_existing_path_fields() {
     assert!(!names.iter().any(|name| name.contains("foo.bar")));
     assert!(!names.iter().any(|name| name.contains("requests.get")));
 
-    let resolved = resolve(repo.path().join("src")).unwrap();
+    let resolved = resolve(&repo.path().join("src")).unwrap();
     assert!(resolved.effective_queries(&[]).iter().any(|query| query
         .resources
         .iter()
