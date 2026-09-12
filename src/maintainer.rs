@@ -85,9 +85,6 @@ pub fn init(cwd: &Path) -> Result<PathBuf, MaintainerError> {
         return Ok(hook);
     }
 
-    let mut frontmatter = HookFrontmatter::default();
-    frontmatter.schema = Some("memhooks/v2".into());
-    frontmatter.inherits = Some(true);
     let project_name = root
         .file_name()
         .and_then(|value| value.to_str())
@@ -95,7 +92,12 @@ pub fn init(cwd: &Path) -> Result<PathBuf, MaintainerError> {
     let body = format!(
         "# MemHooks\n\nRecall prior decisions, constraints, failures, fixes, rejected approaches, and unresolved issues concerning the `{project_name}` project before substantive changes.\n\nThe agent/runtime owns maintenance of concise retrieval cues. Provider-native routing belongs under `backends.<provider>` only when the active backend and control are actually known."
     );
-    write_hook_atomic(&hook, &frontmatter, &body)?;
+    let frontmatter = HookFrontmatter {
+        schema: Some("memhooks/v2".into()),
+        inherits: Some(true),
+        ..HookFrontmatter::default()
+    };
+    with_hook_lock(&hook, || write_hook_atomic(&hook, &frontmatter, &body))?;
     Ok(hook)
 }
 
@@ -205,10 +207,14 @@ fn load_or_default(path: &Path) -> Result<(HookFrontmatter, String), MaintainerE
         require_v2_schema(&parsed)?;
         Ok((parsed.frontmatter, parsed.body))
     } else {
-        let mut frontmatter = HookFrontmatter::default();
-        frontmatter.schema = Some("memhooks/v2".into());
-        frontmatter.inherits = Some(true);
-        Ok((frontmatter, String::new()))
+        Ok((
+            HookFrontmatter {
+                schema: Some("memhooks/v2".into()),
+                inherits: Some(true),
+                ..HookFrontmatter::default()
+            },
+            String::new(),
+        ))
     }
 }
 
@@ -395,6 +401,7 @@ fn with_hook_lock<T>(
         .create(true)
         .read(true)
         .write(true)
+        .truncate(false)
         .open(lock_path)?;
     lock.lock_exclusive()?;
     let result = operation();
