@@ -24,13 +24,15 @@ include = [
 ]
 
 [dependencies]
+# Pin dependency families whose newest releases now require Edition 2024 / newer Rust.
 clap = { version = "=4.5.27", features = ["derive"] }
 fs2 = "0.4"
-# Keep the traversal stack compatible with the declared Rust 1.78 MSRV.
 ignore = "=0.4.23"
-# `ignore 0.4.23` accepts newer 0.4.x globset releases whose MSRV later rose to 1.88.
 globset = "=0.4.15"
-saphyr = { version = "0.0.12", default-features = false }
+# 0.0.6 provides marked YAML spans while remaining compatible with the Rust 1.78 floor.
+saphyr = { version = "=0.0.6", default-features = false }
+# Saphyr 0.0.6 accepts newer 5.x releases; keep this on a Rust-1.78-compatible line.
+ordered-float = "=5.3.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml_ng = "0.10"
