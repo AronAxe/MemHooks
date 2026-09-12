@@ -1,0 +1,36 @@
+name: Transplant Wiki Source
+
+on:
+  push:
+    branches: [wiki-docs]
+    paths:
+      - ".github/workflows/transplant-wiki.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  transplant:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout wiki branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: wiki-docs
+          fetch-depth: 0
+
+      - name: Copy wiki-only changes from release branch
+        run: |
+          set -euo pipefail
+          git fetch origin v0.5.1
+          git checkout origin/v0.5.1 -- wiki .github/workflows/publish-wiki.yml
+
+      - name: Commit transplant and remove helper
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add wiki .github/workflows/publish-wiki.yml
+          git rm .github/workflows/transplant-wiki.yml
+          git commit -m "docs: add MemHooks GitHub Wiki source"
+          git push origin HEAD:wiki-docs
