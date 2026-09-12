@@ -2,6 +2,12 @@
 
 MemHooks is a filesystem-scoped, **backend-neutral retrieval-routing protocol** for AI agents. These guides cover `memhooks/v2`, the Rust reference resolver/validator/maintainer, runtime integration, security boundaries, and provider adapter mappings.
 
+## Wiki
+
+For the more approachable, cross-linked explanation of MemHooks, start with the [Wiki source](../wiki/Home.md). The repository keeps the Wiki source version-controlled under `wiki/` and can mirror it to GitHub's Wiki tab.
+
+The Wiki is explanatory. The normative protocol contract remains [`references/memhooks-format.md`](../references/memhooks-format.md).
+
 ## Start here
 
 - [Quickstart](quickstart.md) — enable MemHooks and understand what happens automatically.

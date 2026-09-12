@@ -321,6 +321,7 @@ The legacy `scripts/memhooks_update.py` remains only as a compatibility launcher
 
 ## Documentation
 
+- [Human-friendly Wiki source](wiki/Home.md) — approachable, cross-linked explanation intended for the GitHub Wiki tab
 - [Documentation index](docs/README.md)
 - [Quickstart](docs/quickstart.md)
 - [CLI reference](docs/cli.md)
