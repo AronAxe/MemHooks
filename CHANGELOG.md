@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.5.1 — 2026-09-12
+
+- Unified reading and writing around one normative `memhooks/v2` data path: the Rust reference maintainer now writes semantic notes and automatic file anchors directly into YAML frontmatter consumed by the resolver.
+- Added `memhooks init`, `memhooks note`, and `memhooks event` to the reference CLI/library; the Python maintainer is now only a compatibility launcher.
+- Added exclusive hook-file locking and atomic same-directory replacement for deterministic maintenance.
+- Restricted automatic path discovery to explicit path-bearing tool-input fields and existing files contained by the canonical project root; arbitrary file contents are no longer regex-mined for path-looking strings.
+- Unified canonical root semantics across resolver, maintainer, and bundled runtime adapters: explicit containing `MEMHOOKS_ROOT`, otherwise nearest Git root as a hard boundary, with hooked-ancestor fallback only outside Git.
+- Made same-trimmed-text queries local overrides across inheritance so adapters do not issue the same retrieval twice with contradictory metadata.
+- Included source-attributed Markdown `guidance` in human and JSON `memhooks explain` output; JSON now serializes the resolved structure instead of manually mirroring selected fields.
+- Reworked the Hermes pre-LLM adapter to delegate schema/root/inheritance resolution to the Rust engine and inject one structurally bounded JSON plan explicitly labelled as untrusted repository-controlled data.
+- Removed raw BEGIN/END repository-text fences and mid-file truncation from the bundled Hermes adapter.
+- Replaced deprecated `serde_yaml` with maintained `serde_yaml_ng`; added Saphyr marked YAML parsing for precise diagnostic source locations.
+- Made structured query/entity/resource parsing tolerant enough to emit targeted diagnostics for malformed entries such as `quer:` instead of aborting the entire file with an internal enum-deserialization error.
+- Added `MH024` for nonexistent target paths plus `MH025`–`MH027` for malformed query/entity/resource entries.
+- Hardened SARIF with validation-root-relative artifact URIs and driver rule/help metadata.
+- Fixed doctest examples and added an explicit `cargo test --doc` CI gate.
+- Added a committed `Cargo.lock`, locked Rust CI, a real Rust 1.78 MSRV job, Python 3.10/3.12 syntax/tests, Ruff, pinned GitHub Action SHAs, read-only workflow permissions, and CI concurrency control.
+- Added `references/**`, `SECURITY.md`, `CONTRIBUTING.md`, and `Cargo.lock` to the crate package; fixed GitHub funding metadata.
+- Added `.gitignore` for Rust/Python build artifacts and MemHooks lock files.
+- Added a root `MEMHOOKS.md` so the repository dogfoods its own protocol and trust/release invariants.
+- Updated README, Agent Skill, normative format spec, CLI/Rust/Hermes/troubleshooting documentation, templates, tests, and release guidance to match the hardened implementation.
+- Protocol schema remains `memhooks/v2`.
+
 ## 0.5.0 — 2026-09-11
 
 - Introduced `memhooks/v2` as a deliberately backend-neutral protocol core.
