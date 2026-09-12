@@ -321,6 +321,7 @@ The legacy `scripts/memhooks_update.py` remains only as a compatibility launcher
 
 ## Documentation
 
+- [Human-friendly Wiki source](wiki/Home.md) — approachable, cross-linked explanation intended for the GitHub Wiki tab
 - [Documentation index](docs/README.md)
 - [Quickstart](docs/quickstart.md)
 - [CLI reference](docs/cli.md)
@@ -331,7 +332,7 @@ The legacy `scripts/memhooks_update.py` remains only as a compatibility launcher
 - [Security policy](SECURITY.md)
 - [Contributing](CONTRIBUTING.md)
 
-The normative protocol contract is [`references/memhooks-format.md`](references/memhooks-format.md).
+The Wiki is explanatory. The normative protocol contract is [`references/memhooks-format.md`](references/memhooks-format.md).
 
 ## What MemHooks is not
 
