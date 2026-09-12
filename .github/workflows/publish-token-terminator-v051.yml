@@ -1,0 +1,48 @@
+name: Publish token-terminator 0.5.1
+
+on:
+  push:
+    paths:
+      - .github/workflows/publish-token-terminator-v051.yml
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          repository: AronAxe/Token-Terminator
+          ref: 60d83cad3829e5837e54109002694faf0c0f1798
+          path: token-terminator
+
+      - uses: dtolnay/rust-toolchain@1.78.0
+        with:
+          components: rustfmt, clippy
+
+      - name: Verify exact release tree
+        working-directory: token-terminator
+        run: |
+          cargo fmt --check
+          cargo clippy --all-targets -- -D warnings
+          cargo test
+          RUSTDOCFLAGS='-D warnings' cargo doc --no-deps
+          rm -f Cargo.lock
+          cargo publish --dry-run
+
+      - name: Publish 0.5.1 if absent
+        working-directory: token-terminator
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CRATES_IO_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+        run: |
+          set -euo pipefail
+          if curl -fsS https://crates.io/api/v1/crates/token-terminator/0.5.1 >/dev/null 2>&1; then
+            echo 'token-terminator 0.5.1 is already published'
+            exit 0
+          fi
+          TOKEN="${CARGO_REGISTRY_TOKEN:-${CRATES_IO_TOKEN:-}}"
+          test -n "$TOKEN"
+          cargo publish --token "$TOKEN"
