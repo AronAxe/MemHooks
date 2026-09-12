@@ -1,16 +1,18 @@
 # MemHooks documentation
 
-MemHooks is a filesystem-scoped, **backend-neutral retrieval-routing protocol** for AI agents. These guides cover the `memhooks/v2` protocol, Rust reference implementation, runtime integration, and provider adapter mappings.
+MemHooks is a filesystem-scoped, **backend-neutral retrieval-routing protocol** for AI agents. These guides cover `memhooks/v2`, the Rust reference resolver/validator/maintainer, runtime integration, security boundaries, and provider adapter mappings.
 
 ## Start here
 
 - [Quickstart](quickstart.md) — enable MemHooks and understand what happens automatically.
-- [CLI reference](cli.md) — `memhooks validate` and `memhooks explain`.
-- [Rust library guide](rust-library.md) — call the reference parser/resolver directly from Rust.
+- [CLI reference](cli.md) — `memhooks init`, `note`, `event`, `validate`, and `explain`.
+- [Rust library guide](rust-library.md) — call the reference parser/resolver/maintainer directly from Rust.
 - [Agent integration guide](integrating-an-agent.md) — wire MemHooks into an agent runtime/harness.
-- [Protocol guide](protocol-guide.md) — practical `memhooks/v2` core and backend namespace semantics.
+- [Protocol guide](protocol-guide.md) — practical `memhooks/v2` core, root, inheritance, and backend namespace semantics.
 - [Troubleshooting](troubleshooting.md) — validator diagnostics and common failure modes.
 - [Publishing the Rust crate](publishing.md) — maintainer notes for crates.io releases.
+- [Security policy](../SECURITY.md) — trust boundary and private vulnerability reporting.
+- [Contributing](../CONTRIBUTING.md) — test/review expectations.
 
 ## Who maintains hook files?
 
@@ -19,15 +21,33 @@ Ordinary users normally **do not** hand-maintain `MEMHOOKS.md`.
 The normal division is:
 
 1. the user enables MemHooks and optionally configures a memory backend;
-2. the agent/runtime creates and updates local retrieval cues;
-3. the reference resolver validates/merges those cues;
-4. the active memory adapter performs retrieval.
+2. the agent/runtime creates and updates local retrieval cues through the reference maintainer;
+3. the reference engine writes, validates, resolves, and explains the same YAML frontmatter data model;
+4. the active memory adapter performs bounded retrieval.
 
-Operational advice about keeping cues concise, pruning stale routing, and choosing provider hints is therefore documented in the agent/runtime material rather than presented as a user chore.
+Operational advice about keeping cues concise, pruning stale routing, and choosing provider hints is therefore documented in agent/runtime material rather than presented as a user chore.
+
+## One structured data path
+
+v0.5.1 deliberately has one normative structured store:
+
+```text
+memhooks note / memhooks event
+        ↓
+YAML frontmatter
+        ↓
+reference parser/resolver
+        ↓
+memhooks explain / Rust API
+        ↓
+runtime adapter
+```
+
+The Markdown body remains source-attributed free-form guidance. It is not a second machine-routing store.
 
 ## Canonical specification
 
-The normative format contract is [`references/memhooks-format.md`](../references/memhooks-format.md). If an explanatory guide conflicts with the format reference, the format reference wins.
+The normative format contract is [`references/memhooks-format.md`](../references/memhooks-format.md). If an explanatory guide conflicts with that reference, the reference wins.
 
 ## Provider mappings
 
