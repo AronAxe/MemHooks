@@ -4,8 +4,6 @@ This document explains the practical semantics of **`memhooks/v2`**. The normati
 
 ## Mental model
 
-`memhooks/v2` has two layers:
-
 ```text
 core fields
     = provider-neutral retrieval intent
@@ -15,6 +13,16 @@ backends.<provider>
 ```
 
 The core never promotes a provider's ontology into universal fields.
+
+There is also deliberately **one structured routing store**:
+
+```text
+YAML frontmatter
+    ↓
+reference parser / resolver / maintainer
+```
+
+The Markdown body is optional source-attributed guidance, not a second JSON/query database.
 
 ## Core shape
 
@@ -30,8 +38,7 @@ recall_queries:
     priority: 1.0
     when:
       roles: [reviewer, architect]
-    entities:
-      - Authentication
+    entities: [Authentication]
     resources:
       - name: auth-postmortem
         kind: postmortem
@@ -47,14 +54,9 @@ entities:
   - name: Authentication
     type: CONCEPT
     salience: 0.95
-
-resources:
-  - auth-architecture
-
+resources: [auth-architecture]
 tags: [backend]
-exclude:
-  - obsolete OAuth prototype
-
+exclude: [obsolete OAuth prototype]
 sensitivity: private
 
 backends:
@@ -76,7 +78,17 @@ Required:
 schema: memhooks/v2
 ```
 
-The package version and protocol schema version are separate. The v0.5.x reference resolver implements v2 and rejects unsupported schemas during resolution.
+The package version and schema version are separate. v0.5.1 remains `memhooks/v2` and hard-rejects unsupported schemas during resolution.
+
+## Canonical root
+
+Resolver, maintainer, and bundled runtime adapters share one root definition:
+
+1. explicit containing `MEMHOOKS_ROOT` if supplied;
+2. otherwise nearest Git root as a hard boundary;
+3. only outside Git, highest ancestor containing `MEMHOOKS.md`.
+
+A hook above a Git repository cannot silently capture that repository's maintenance writes.
 
 ## `inherits`
 
@@ -86,20 +98,22 @@ Optional boolean, default `true`.
 inherits: false
 ```
 
-starts a new local hook scope: ancestor hooks above that file are discarded for the active subtree.
+starts a new local hook scope. Ancestors above that hook are discarded for the active subtree.
+
+Only the top-level core field controls inheritance. A provider-native key named `inherits` under `backends.<provider>` is opaque and has no effect.
 
 ## `recall_queries`
 
 The central field. Each query describes context whose answer could materially change current work.
 
-Simple form:
+Simple:
 
 ```yaml
 recall_queries:
   - "Why was the current queue architecture selected?"
 ```
 
-Structured form:
+Structured:
 
 ```yaml
 recall_queries:
@@ -115,116 +129,71 @@ recall_queries:
         rerank: true
 ```
 
+### Query identity and local override
+
+Across an inheritance chain, **trimmed query text is the query identity**.
+
+If a child repeats the same question as a parent, the child's declaration replaces the parent query and all query-local metadata. The final plan contains one retrieval request, not two contradictory copies.
+
+Within one file, duplicate query text is still a validation warning.
+
 ### `priority`
 
-Optional float `0.0..1.0`.
-
-It means **importance of this recall request when context is limited**. It does not mean confidence, truth probability, semantic similarity, or provider relevance.
-
-If omitted, the protocol does not invent a numeric default.
+Optional float `0.0..1.0`. It means importance of the recall request under context pressure. It does not mean truth, confidence, semantic similarity, or provider relevance.
 
 ### `when.roles`
 
-Optional open list of project/runtime role strings:
-
-```yaml
-when:
-  roles: [reviewer, refactor]
-```
-
-A restricted query applies if any declared role exactly matches any active role. If no active role is known, the reference resolver preserves the query rather than guessing.
+Optional open role strings. A restricted query applies if any declared role exactly matches an active role. If the runtime has no active-role information, restricted queries remain present rather than being guessed away.
 
 ### Query-local cues
 
-Structured queries can add query-local:
-
-- `entities`
-- `resources`
-- `tags`
-- `backends`
-
-Generic entity/resource/tag cues supplement resolved scope cues. Query-local backend configuration overlays scope-level provider configuration structurally.
+Structured queries can add local `entities`, `resources`, `tags`, and `backends`. Generic cues supplement resolved scope cues; query-local provider mappings overlay scope provider mappings structurally.
 
 ## `entities`
 
-Named retrieval cues.
-
-Simple:
+Named retrieval cues:
 
 ```yaml
 entities:
   - Authentication
-```
-
-Structured:
-
-```yaml
-entities:
   - name: OpenAI
     type: ORG
     salience: 0.9
 ```
 
-`type` is optional and intentionally open. MemHooks does not define a universal entity taxonomy.
-
-`salience` is optional `0.0..1.0` cue importance, separate from query priority and provider search scores.
+`type` is intentionally open. `salience` is optional `0.0..1.0` cue importance, separate from query priority/provider scores.
 
 ## `resources`
 
-Named existing resources that may deserve retrieval/read access.
-
-Simple:
+Named existing resources:
 
 ```yaml
 resources:
   - auth-architecture
-```
-
-Structured:
-
-```yaml
-resources:
   - name: outage-postmortem
     kind: postmortem
     salience: 0.9
 ```
 
-`kind` is an optional open string. It can describe a document, postmortem, standing answer, design note, page, or another existing resource without forcing all providers to share one resource ontology.
+`kind` is an open string. Provider-native resource identifiers remain provider-owned where exact semantics matter.
 
-Provider-native resource classes/IDs remain inside `backends.<provider>` when exact provider semantics matter.
+Automatic deterministic file anchors are represented as generic resources with `kind: file` on a structured auto-query.
 
 ## `tags`
 
-Backend-neutral relevance/routing labels.
-
-```yaml
-tags: [security, backend]
-```
-
-An adapter may map them to native metadata filters when a real equivalent exists. Otherwise they remain query/routing hints.
+Backend-neutral routing/relevance labels. Adapters may map them to native metadata filters where a real equivalent exists.
 
 ## `exclude`
 
-First-class anti-recall:
+First-class anti-recall. Use native negative filtering or post-filtering to keep known obsolete/misleading context out of the active task.
 
-```yaml
-exclude:
-  - obsolete OAuth prototype
-```
+## `scope` and `sensitivity`
 
-Adapters should use native negative filtering when appropriate or post-filter matching obsolete/misleading results before they enter context.
-
-## `scope`
-
-Optional descriptive scope label. It is not authoritative filesystem state.
-
-## `sensitivity`
-
-Optional advisory handling metadata. MemHooks intentionally does not define a closed sensitivity taxonomy. Host security/access control remains authoritative.
+`scope` is descriptive backend-neutral metadata. `sensitivity` is advisory handling metadata. Neither overrides host filesystem state, authorization, or security policy.
 
 ## `backends`
 
-Opaque provider namespaces:
+Opaque provider mappings:
 
 ```yaml
 backends:
@@ -238,58 +207,70 @@ backends:
     memory_types: [experience]
 ```
 
-The core knows only that:
-
-- provider names are non-empty strings;
-- each provider namespace is a mapping/object;
-- the mapping must survive resolution with deterministic structural merge semantics.
-
-The core does **not** know what `user_id`, `top_k`, `bank`, or `memory_types` means.
+The core knows only that provider names are non-empty and provider values are mappings. It does not know what `user_id`, `top_k`, `bank`, or `memory_types` means.
 
 ### Provider merge semantics
 
-Parent:
+- mapping + mapping → recursive merge;
+- more-local scalar/list/other value → replace parent value;
+- query-local provider mapping → overlay resolved scope provider mapping.
 
-```yaml
-backends:
-  mem0:
-    filters:
-      user_id: alice
-    threshold: 0.1
+Lists are replaced rather than concatenated because generic MemHooks cannot know provider list semantics.
+
+## Markdown body guidance
+
+Free-form Markdown after the frontmatter remains source-attributed retrieval guidance.
+
+It is accumulated root → leaf in `ResolvedHook.guidance` and included in the complete `memhooks explain --format json` adapter handoff.
+
+Structured/machine-maintained routing belongs in YAML frontmatter, not in hidden JSON code fences in the body.
+
+## Reference maintenance
+
+The reference engine writes the same model it reads:
+
+```bash
+memhooks init .
+memhooks note --cwd . --query "Why was this design chosen?" --priority 0.9
+printf '%s' '<post_tool_call JSON>' | memhooks event
 ```
 
-Child:
+Maintenance requirements:
 
-```yaml
-backends:
-  mem0:
-    threshold: 0.2
-    rerank: true
-```
+- semantic cues and deterministic anchors are written to YAML frontmatter;
+- unknown/future structured fields and provider mappings survive enrichment;
+- automatic file anchors inspect explicit path-bearing tool-input fields only;
+- candidate anchors must be existing files inside the canonical root;
+- concurrent updates use an exclusive lock;
+- writes use atomic same-directory replacement.
 
-Resolved:
+The Python helper is compatibility glue to the canonical binary, not a separate persistence implementation.
 
-```yaml
-backends:
-  mem0:
-    filters:
-      user_id: alice
-    threshold: 0.2
-    rerank: true
-```
+## Root-to-leaf resolution
 
-Rules:
+For a target:
 
-- mapping + mapping → recursively merge;
-- local scalar replaces parent scalar;
-- local sequence/list replaces parent sequence/list;
-- query-local namespace overlays resolved scope-level namespace.
+1. choose the canonical root;
+2. discover hooks root → leaf;
+3. reject unsupported schemas;
+4. apply `inherits: false` cutoffs;
+5. merge remaining hooks;
+6. make same-text child queries replace parent queries;
+7. accumulate generic list cues with exact duplicate suppression;
+8. use local scalar core values;
+9. structurally merge provider mappings;
+10. accumulate source-attributed body guidance;
+11. apply known role filtering.
 
-Lists are replaced rather than automatically concatenated because MemHooks cannot know the provider's list semantics.
+## Diagnostics
+
+The v0.5.1 validator uses YAML AST source positions rather than textual first-match searching. Repeated fields therefore point at the actual offending node.
+
+Malformed structured query/entity/resource entries are preserved far enough to produce targeted lint diagnostics when possible. Truly syntactically invalid YAML can still produce a file-level parse error.
+
+SARIF uses validation-root-relative artifact paths and includes rule metadata/help.
 
 ## Provider mappings
-
-Provider-native concepts live in separate references:
 
 - [Hindsight](../references/memory-systems/01-hindsight.md)
 - [OpenViking](../references/memory-systems/02-openviking.md)
@@ -297,44 +278,18 @@ Provider-native concepts live in separate references:
 - [Mem0](../references/memory-systems/04-mem0.md)
 - [Generic / unknown](../references/memory-systems/99-generic-or-unknown.md)
 
-Examples such as Hindsight Reflect/Mental Models or Mem0 filters/reranking are intentionally absent from the **core** field list.
+## Trust boundary
 
-## Root-to-leaf merge semantics
+Repository-controlled hooks are untrusted routing data. They cannot grant themselves system/developer authority, execute arbitrary commands, authorize memory writes, bypass access controls, or escape the canonical root.
 
-For a target directory:
+Bundled adapters should inject validated routing structurally and with an explicit trust label. Size limits must preserve structural closure.
 
-1. discover `MEMHOOKS.md` root → leaf;
-2. reject unsupported schema versions;
-3. if a leafward hook sets `inherits: false`, discard earlier ancestors;
-4. merge remaining hooks root → leaf;
-5. accumulate core list fields with exact duplicate suppression;
-6. use the most local specified scalar core value;
-7. preserve structured-query priority/roles/local cues;
-8. structurally merge provider mappings;
-9. append free-form guidance with source provenance;
-10. apply role filtering when active roles are actually known.
-
-The reference implementation preserves source paths for merged queries/entities/resources/guidance where applicable.
+See [`SECURITY.md`](../SECURITY.md).
 
 ## Agent/runtime ownership
 
-`MEMHOOKS.md` is normally maintained by the **agent/runtime**, not manually curated by the end user.
-
-Operational guidance such as keeping routing cues concise or removing stale cues applies to the component doing automatic maintenance.
-
-The human-facing workflow should normally be: enable MemHooks once, configure the memory system if needed, then let the agent/runtime maintain routing metadata.
+The agent/runtime normally maintains hook files, not the end user. Operational rules like keeping cues concise, pruning stale routing, or choosing provider hints are instructions to the maintainer/runtime.
 
 ## Non-goals
 
-`MEMHOOKS.md` is not:
-
-- a memory database;
-- a transcript dump;
-- a README replacement;
-- a prompt-privilege declaration;
-- a memory-retention policy;
-- an arbitrary command execution manifest;
-- a universal provider configuration schema;
-- a directive store.
-
-The **agent/runtime maintainer** should keep routing metadata concise enough to function as an index of what must be remembered rather than storing the memories themselves.
+`MEMHOOKS.md` is not a memory database, transcript dump, README replacement, prompt-privilege declaration, retention policy, arbitrary command manifest, universal provider API, or directive store.

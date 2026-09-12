@@ -1,7 +1,7 @@
 use crate::model::{BackendMap, Entity, HookFrontmatter, RecallQuery, Resource};
 use crate::parser::{parse_hook, require_v2_schema, ParseError, ParsedHook};
 use serde::{Deserialize, Serialize};
-use serde_yaml::Value;
+use serde_yaml_ng::Value;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
@@ -127,12 +127,26 @@ fn merge_yaml_value(target: &mut Value, overlay: &Value) {
     }
 }
 
+/// Resolve the one canonical MemHooks root for a target.
+///
+/// `MEMHOOKS_ROOT` wins when it contains the target. Otherwise the nearest Git
+/// root is the hard boundary. Only outside Git do we fall back to the highest
+/// ancestor containing a hook.
 pub fn find_root(target: &Path) -> PathBuf {
     let start = if target.is_file() {
         target.parent().unwrap_or(target)
     } else {
         target
     };
+
+    if let Some(configured) = std::env::var_os("MEMHOOKS_ROOT") {
+        let configured = PathBuf::from(configured);
+        let configured = configured.canonicalize().unwrap_or(configured);
+        let absolute_start = start.canonicalize().unwrap_or_else(|_| start.to_path_buf());
+        if absolute_start.starts_with(&configured) {
+            return configured;
+        }
+    }
 
     for directory in start.ancestors() {
         if directory.join(".git").exists() {
@@ -175,6 +189,16 @@ pub fn parse_chain(target: &Path) -> Result<Vec<ParsedHook>, ParseError> {
 }
 
 pub fn resolve(target: &Path) -> Result<ResolvedHook, ParseError> {
+    if !target.exists() {
+        return Err(ParseError {
+            code: "MH024",
+            path: target.to_path_buf(),
+            message: format!("target path does not exist: {}", target.display()),
+            line: None,
+            column: None,
+        });
+    }
+
     let target = target
         .canonicalize()
         .unwrap_or_else(|_| target.to_path_buf());
@@ -235,15 +259,19 @@ fn merge_hook(resolved: &mut ResolvedHook, hook: &ParsedHook) {
     merge_backend_maps(&mut resolved.backends, backends);
 
     for query in recall_queries {
-        if !resolved
+        let sourced = Sourced {
+            source: hook.path.clone(),
+            value: query.clone(),
+        };
+        if let Some(existing) = resolved
             .recall_queries
-            .iter()
-            .any(|existing| existing.value == *query)
+            .iter_mut()
+            .find(|existing| existing.value.text().trim() == query.text().trim())
         {
-            resolved.recall_queries.push(Sourced {
-                source: hook.path.clone(),
-                value: query.clone(),
-            });
+            // Query identity is its trimmed question text. More-local metadata wins.
+            *existing = sourced;
+        } else {
+            resolved.recall_queries.push(sourced);
         }
     }
 

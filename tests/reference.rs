@@ -1,4 +1,6 @@
-use memhooks::{parse_hook_str, resolve, validate_parsed, Entity, RecallQuery, Resource, Severity};
+use memhooks::{
+    find_root, parse_hook_str, resolve, validate_parsed, Entity, RecallQuery, Resource, Severity,
+};
 use serde_json::json;
 use std::fs;
 use tempfile::tempdir;
@@ -78,6 +80,43 @@ resources:
 }
 
 #[test]
+fn diagnostic_span_points_to_the_actual_second_priority() {
+    let source = r#"---
+schema: memhooks/v2
+recall_queries:
+  - query: first
+    priority: 0.5
+  - query: second
+    priority: 9.9
+---
+"#;
+    let parsed = parse_hook_str("MEMHOOKS.md", source).unwrap();
+    let diagnostics = validate_parsed(&parsed);
+    let priority = diagnostics.iter().find(|d| d.code == "MH004").unwrap();
+    assert_eq!(priority.line, Some(7));
+    assert_eq!(priority.column, Some(5));
+}
+
+#[test]
+fn misspelled_query_key_is_linted_without_killing_the_file() {
+    let source = r#"---
+schema: memhooks/v2
+recall_queries:
+  - quer: "typo in the key"
+  - query: "still parsed"
+---
+"#;
+    let parsed = parse_hook_str("MEMHOOKS.md", source).unwrap();
+    assert_eq!(parsed.frontmatter.recall_queries.len(), 2);
+    let diagnostics = validate_parsed(&parsed);
+    assert!(diagnostics
+        .iter()
+        .any(|d| d.code == "MH003" && d.severity == Severity::Error));
+    let unknown = diagnostics.iter().find(|d| d.code == "MH005").unwrap();
+    assert_eq!(unknown.line, Some(4));
+}
+
+#[test]
 fn resolver_honors_inheritance_cut_and_role_filtering() {
     let temp = tempdir().unwrap();
     let root = temp.path();
@@ -119,6 +158,71 @@ recall_queries:
     let feature = resolved.effective_queries(&["feature_dev".into()]);
     assert_eq!(feature.len(), 1);
     assert_eq!(feature[0].query, "always");
+}
+
+#[test]
+fn local_query_with_same_text_overrides_parent_metadata() {
+    let temp = tempdir().unwrap();
+    let root = temp.path();
+    fs::create_dir(root.join(".git")).unwrap();
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("MEMHOOKS.md"),
+        r#"---
+schema: memhooks/v2
+recall_queries:
+  - query: "same text"
+    priority: 0.2
+---
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/MEMHOOKS.md"),
+        r#"---
+schema: memhooks/v2
+recall_queries:
+  - query: "same text"
+    priority: 0.9
+---
+"#,
+    )
+    .unwrap();
+
+    let resolved = resolve(&root.join("src")).unwrap();
+    assert_eq!(resolved.recall_queries.len(), 1);
+    assert_eq!(resolved.effective_queries(&[])[0].priority, Some(0.9));
+    assert!(resolved.recall_queries[0]
+        .source
+        .ends_with("src/MEMHOOKS.md"));
+}
+
+#[test]
+fn git_root_is_a_hard_boundary_for_outer_hooks() {
+    let temp = tempdir().unwrap();
+    let outer = temp.path().join("outer");
+    let repo = outer.join("repo");
+    let sub = repo.join("sub");
+    fs::create_dir_all(&sub).unwrap();
+    fs::create_dir(repo.join(".git")).unwrap();
+    fs::write(
+        outer.join("MEMHOOKS.md"),
+        "---\nschema: memhooks/v2\nrecall_queries: [outer]\n---\n",
+    )
+    .unwrap();
+
+    assert_eq!(find_root(&sub), repo);
+    let resolved = resolve(&sub).unwrap();
+    assert!(resolved.sources.is_empty());
+    assert!(resolved.recall_queries.is_empty());
+}
+
+#[test]
+fn nonexistent_resolve_target_is_an_error() {
+    let temp = tempdir().unwrap();
+    let missing = temp.path().join("does-not-exist");
+    let error = resolve(&missing).unwrap_err();
+    assert_eq!(error.code, "MH024");
 }
 
 #[test]
@@ -183,6 +287,22 @@ recall_queries:
         provider_json["hindsight"]["memory_types"],
         json!(["experience"])
     );
+}
+
+#[test]
+fn guidance_is_part_of_the_resolved_serializable_handoff() {
+    let temp = tempdir().unwrap();
+    let root = temp.path();
+    fs::create_dir(root.join(".git")).unwrap();
+    fs::write(
+        root.join("MEMHOOKS.md"),
+        "---\nschema: memhooks/v2\n---\n\nUse direct recall first.\n",
+    )
+    .unwrap();
+    let resolved = resolve(root).unwrap();
+    assert_eq!(resolved.guidance.len(), 1);
+    let json = serde_json::to_value(&resolved).unwrap();
+    assert_eq!(json["guidance"][0]["value"], "Use direct recall first.");
 }
 
 #[test]

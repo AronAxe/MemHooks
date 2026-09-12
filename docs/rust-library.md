@@ -1,27 +1,27 @@
 # Rust library guide
 
-The `memhooks` crate exposes the parser, resolver, model, and validator used by the reference CLI. Agent runtimes can call the library directly instead of spawning the CLI or reimplementing filesystem inheritance and role routing.
+The `memhooks` crate exposes the same parser, resolver, validator, and **frontmatter maintainer** used by the reference CLI. Agent runtimes can call the library directly instead of spawning the CLI or reimplementing root discovery, inheritance, role routing, or file maintenance.
 
-The v0.5.0 library implements **`memhooks/v2`**, whose core is backend-neutral. Provider-native configuration is carried as opaque YAML under `backends.<provider>`.
+The v0.5.1 library implements **`memhooks/v2`**. The core is backend-neutral; provider-native configuration is carried as opaque YAML under `backends.<provider>`.
 
 ## Add the dependency
 
 ```toml
 [dependencies]
-memhooks = "0.5.0"
+memhooks = "0.5.1"
 ```
 
 or:
 
 ```bash
-cargo add memhooks@0.5.0
+cargo add memhooks@0.5.1
 ```
 
 ## Resolve effective context
 
 The main runtime entry point is [`resolve`]:
 
-```rust
+```rust,no_run
 use memhooks::resolve;
 use std::path::Path;
 
@@ -32,27 +32,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for source in &resolved.sources {
         println!("source: {}", source.display());
     }
-
     println!("providers: {:?}", resolved.backends.keys().collect::<Vec<_>>());
+    println!("guidance blocks: {}", resolved.guidance.len());
     Ok(())
 }
 ```
 
 `resolve`:
 
-1. finds the repository/hook root;
-2. discovers `MEMHOOKS.md` files root → target;
-3. rejects unsupported schemas rather than silently reinterpreting them;
-4. applies `inherits: false` cutoffs;
-5. merges backend-neutral core fields;
-6. structurally merges opaque provider namespaces;
-7. preserves source provenance.
+1. rejects nonexistent target paths;
+2. uses the canonical MemHooks root semantics;
+3. discovers `MEMHOOKS.md` files root → target;
+4. rejects unsupported schemas rather than silently reinterpreting them;
+5. applies `inherits: false` cutoffs;
+6. merges backend-neutral core fields;
+7. structurally merges opaque provider namespaces;
+8. preserves source provenance for queries, entities, resources, and body guidance.
 
 ## Apply active roles
 
 Use [`ResolvedHook::effective_queries`] after resolution:
 
-```rust
+```rust,no_run
 use memhooks::resolve;
 use std::path::Path;
 
@@ -80,16 +81,11 @@ Role behavior:
 - non-empty active-role list → a restricted query survives when any declared role exactly matches any active role;
 - unrestricted queries always survive.
 
-`effective_queries` also:
-
-- supplements scope entities with query-local entities;
-- supplements scope resources with query-local resources;
-- supplements scope tags with query-local tags;
-- overlays query-local backend namespaces on the resolved scope-level backend configuration.
+When the same trimmed query text appears in a parent and child hook, the **more-local query replaces the parent query and its metadata**. The resolver will not issue the same question twice with contradictory priorities.
 
 ## Provider namespaces
 
-Provider data uses [`BackendMap`], which is a string-keyed map of `serde_yaml::Value`.
+Provider data uses [`BackendMap`], a string-keyed map of `serde_yaml_ng::Value`.
 
 Example hook:
 
@@ -108,13 +104,9 @@ recall_queries:
         rerank: true
 ```
 
-The effective query gets a structurally merged Mem0 mapping containing the inherited filter/threshold plus query-local `top_k`/`rerank`.
+The effective query gets a structurally merged Mem0 mapping containing the inherited filter/threshold plus query-local `top_k`/`rerank`. The crate deliberately does not know what those Mem0 keys mean.
 
-The crate deliberately does not know what any of those Mem0 keys mean.
-
-### Structural merge helper
-
-[`merge_backend_maps`] is public for adapters/tooling that need exactly the same merge behavior:
+[`merge_backend_maps`] is public for adapters/tooling that need exactly the same structural merge behavior:
 
 ```rust
 use memhooks::{merge_backend_maps, BackendMap};
@@ -124,23 +116,19 @@ let query = BackendMap::new();
 merge_backend_maps(&mut scope, &query);
 ```
 
-Merge rule:
-
-- mapping + mapping → recursive merge;
-- a local scalar/list/other value → replace the parent value.
-
-This avoids inventing additive semantics for provider-owned sequences.
-
 ## Parse without resolving inheritance
 
-Use [`parse_hook`] for a file on disk:
+Use [`parse_hook`] for a file on disk. This example is `no_run` because it expects a real `MEMHOOKS.md` at runtime:
 
-```rust
+```rust,no_run
 use memhooks::parse_hook;
 use std::path::Path;
 
-let hook = parse_hook(Path::new("MEMHOOKS.md"))?;
-println!("schema: {:?}", hook.frontmatter.schema);
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let hook = parse_hook(Path::new("MEMHOOKS.md"))?;
+    println!("schema: {:?}", hook.frontmatter.schema);
+    Ok(())
+}
 ```
 
 Use [`parse_hook_str`] for in-memory source:
@@ -149,7 +137,8 @@ Use [`parse_hook_str`] for in-memory source:
 use memhooks::parse_hook_str;
 use std::path::Path;
 
-let source = r#"---
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let source = r#"---
 schema: memhooks/v2
 recall_queries:
   - "What decisions matter here?"
@@ -159,23 +148,27 @@ backends:
 ---
 "#;
 
-let hook = parse_hook_str(Path::new("virtual/MEMHOOKS.md"), source)?;
-assert_eq!(hook.frontmatter.recall_queries.len(), 1);
-assert!(hook.frontmatter.backends.contains_key("mem0"));
+    let hook = parse_hook_str(Path::new("virtual/MEMHOOKS.md"), source)?;
+    assert_eq!(hook.frontmatter.recall_queries.len(), 1);
+    assert!(hook.frontmatter.backends.contains_key("mem0"));
+    Ok(())
+}
 ```
 
-Parsing and validation are separate operations. `parse_hook`/`parse_hook_str` deserialize the file; validation reports unsupported schema/core mistakes. `resolve` enforces the supported v2 schema for runtime use.
+Parsing is tolerant enough to keep malformed structured entries available to the validator. A typo such as `quer:` therefore produces a targeted diagnostic instead of aborting the entire file as an internal enum-deserialization error.
 
 ## Validate hooks
 
 One file:
 
-```rust
+```rust,no_run
 use memhooks::validate_file;
 use std::path::Path;
 
-for diagnostic in validate_file(Path::new("MEMHOOKS.md")) {
-    eprintln!("{}: {}", diagnostic.code, diagnostic.message);
+fn main() {
+    for diagnostic in validate_file(Path::new("MEMHOOKS.md")) {
+        eprintln!("{}: {}", diagnostic.code, diagnostic.message);
+    }
 }
 ```
 
@@ -189,11 +182,76 @@ let diagnostics = validate_path(Path::new("."), true);
 let has_errors = diagnostics
     .iter()
     .any(|diagnostic| diagnostic.severity == Severity::Error);
+assert!(!has_errors);
 ```
 
-The second argument to `validate_path` corresponds to CLI `--all` behavior.
+Diagnostics use locations from the YAML frontmatter AST, so repeated keys such as two different `priority:` entries receive the correct line/column instead of the first textual match.
 
-The generic validator checks core semantics and that every provider namespace contains a mapping/object. It does **not** validate arbitrary provider-internal keys.
+## Maintain hooks through the same data model
+
+The library now owns maintenance as well as reading. This is the important v0.5.1 invariant: **what the maintainer writes is immediately visible through `resolve`.**
+
+Initialize a project:
+
+```rust,no_run
+use memhooks::init;
+use std::path::Path;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let hook = init(Path::new("."))?;
+    println!("{}", hook.display());
+    Ok(())
+}
+```
+
+Add or enrich a semantic retrieval cue:
+
+```rust,no_run
+use memhooks::{add_note, NoteInput};
+use std::path::Path;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    add_note(
+        Path::new("."),
+        NoteInput {
+            query: "Why did authentication change after the outage?".into(),
+            priority: Some(0.9),
+            roles: vec!["reviewer".into()],
+            tags: vec!["security".into()],
+            ..NoteInput::default()
+        },
+    )?;
+    Ok(())
+}
+```
+
+Consume a runtime `post_tool_call` event. This example is `no_run` because it intentionally demonstrates a write-capable maintenance API:
+
+```rust,no_run
+use memhooks::handle_event;
+use serde_json::json;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let event = json!({
+        "hook_event_name": "post_tool_call",
+        "cwd": ".",
+        "tool_input": { "path": "src/lib.rs" }
+    });
+    let _writes = handle_event(&event)?;
+    Ok(())
+}
+```
+
+The maintainer:
+
+- writes `recall_queries`/resources directly into YAML frontmatter;
+- only treats explicit path-bearing tool-input fields as automatic file anchors;
+- requires anchored files to exist inside the canonical project root;
+- preserves opaque/unknown fields when enriching existing structured queries;
+- takes an exclusive sibling lock;
+- writes through an atomic same-directory temporary replacement.
+
+The Python `scripts/memhooks_update.py` file is only a compatibility launcher to the `memhooks` binary, not a second parser or persistence implementation.
 
 ## Important exported types/functions
 
@@ -213,8 +271,10 @@ The generic validator checks core semantics and that every provider namespace co
 
 - [`parse_hook`]
 - [`parse_hook_str`]
+- [`render_hook`]
 - [`ParsedHook`]
 - [`ParseError`]
+- [`SourceLocation`]
 
 ### Resolution
 
@@ -236,6 +296,14 @@ The generic validator checks core semantics and that every provider namespace co
 - [`Diagnostic`]
 - [`Severity`]
 
+### Maintenance
+
+- [`init`]
+- [`add_note`]
+- [`handle_event`]
+- [`NoteInput`]
+- [`MaintainerError`]
+
 ## Runtime responsibilities outside the crate
 
 The crate deliberately stops before memory retrieval. The host runtime remains responsible for:
@@ -247,7 +315,6 @@ The crate deliberately stops before memory retrieval. The host runtime remains r
 - applying credentials/access/trust policy;
 - budgeting returned context;
 - deciding prompt placement;
-- retaining memory provenance;
-- maintaining semantic routing cues when appropriate.
+- retaining memory provenance.
 
-This boundary is what keeps `memhooks/v2` genuinely backend-neutral.
+This boundary keeps `memhooks/v2` backend-neutral while still giving runtimes one normative parser/resolver/maintainer implementation.

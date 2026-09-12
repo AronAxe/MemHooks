@@ -1,0 +1,8 @@
+target/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+.MEMHOOKS.md.lock
+.DS_Store
