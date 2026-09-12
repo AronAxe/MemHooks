@@ -1,4 +1,4 @@
-use serde::de::{DeserializeOwned, Error as DeError};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_yaml_ng::{Mapping, Value};
 use std::collections::BTreeMap;
