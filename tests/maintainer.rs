@@ -67,7 +67,7 @@ fn automatic_event_anchors_only_explicit_existing_path_fields() {
     });
     assert_eq!(handle_event(&payload).unwrap(), 1);
 
-    let parsed = parse_hook(&repo.path().join("src/MEMHOOKS.md")).unwrap();
+    let parsed = parse_hook(repo.path().join("src/MEMHOOKS.md")).unwrap();
     let auto = parsed
         .frontmatter
         .recall_queries
@@ -83,7 +83,7 @@ fn automatic_event_anchors_only_explicit_existing_path_fields() {
     assert!(!names.iter().any(|name| name.contains("foo.bar")));
     assert!(!names.iter().any(|name| name.contains("requests.get")));
 
-    let resolved = resolve(&repo.path().join("src")).unwrap();
+    let resolved = resolve(repo.path().join("src")).unwrap();
     assert!(resolved.effective_queries(&[]).iter().any(|query| query
         .resources
         .iter()
@@ -141,7 +141,7 @@ recall_queries:
     )
     .unwrap();
 
-    let parsed = parse_hook(&repo.path().join("MEMHOOKS.md")).unwrap();
+    let parsed = parse_hook(repo.path().join("MEMHOOKS.md")).unwrap();
     let RecallQuery::Structured(query) = &parsed.frontmatter.recall_queries[0] else {
         panic!("expected structured query");
     };
