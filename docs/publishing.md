@@ -33,7 +33,7 @@ Do **not** remove `Cargo.lock` as part of the release flow. MemHooks ships a bin
 
 The `rust-version = "1.78"` declaration is tested, not aspirational. Some dependency families later adopted Edition 2024 or raised their MSRV while remaining semver-compatible with broad dependency ranges, so v0.5.1 constrains the affected families in `Cargo.toml` as well as committing `Cargo.lock`.
 
-Current compatibility pins include the Clap, ignore/globset, Saphyr, ordered-float, and tempfile lines used by the reference CLI/parser. Do not casually widen those ranges: first prove the replacement graph with the Rust 1.78 CI job, then update the manifest and lockfile together.
+Current compatibility pins include the Clap, ignore/globset, indexmap, Saphyr, ordered-float, and tempfile lines used by the reference CLI/parser. Do not casually widen those ranges: first prove the replacement graph with the Rust 1.78 CI job, then update the manifest and lockfile together.
 
 ## Authentication
 
