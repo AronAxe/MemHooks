@@ -112,11 +112,7 @@ pub fn add_note(cwd: &Path, input: NoteInput) -> Result<PathBuf, MaintainerError
 }
 
 pub fn handle_event(payload: &JsonValue) -> Result<usize, MaintainerError> {
-    if payload
-        .get("hook_event_name")
-        .and_then(JsonValue::as_str)
-        != Some("post_tool_call")
-    {
+    if payload.get("hook_event_name").and_then(JsonValue::as_str) != Some("post_tool_call") {
         return Ok(0);
     }
 
@@ -133,7 +129,10 @@ pub fn handle_event(payload: &JsonValue) -> Result<usize, MaintainerError> {
     };
 
     let mut candidates = Vec::new();
-    collect_explicit_paths(payload.get("tool_input").unwrap_or(&JsonValue::Null), &mut candidates);
+    collect_explicit_paths(
+        payload.get("tool_input").unwrap_or(&JsonValue::Null),
+        &mut candidates,
+    );
     let mut relative_files = candidates
         .into_iter()
         .filter_map(|candidate| safe_existing_file(&candidate, &cwd, &root))
@@ -249,11 +248,17 @@ fn merge_note_metadata(target: &mut StructuredRecallQuery, input: NoteInput) {
 
     if !input.roles.is_empty() {
         let when = target.when.get_or_insert_with(Default::default);
-        extend_unique(&mut when.roles, input.roles.into_iter().map(|role| normalize_text(&role)));
+        extend_unique(
+            &mut when.roles,
+            input.roles.into_iter().map(|role| normalize_text(&role)),
+        );
     }
     extend_unique(&mut target.entities, input.entities.into_iter());
     extend_unique(&mut target.resources, input.resources.into_iter());
-    extend_unique(&mut target.tags, input.tags.into_iter().map(|tag| normalize_text(&tag)));
+    extend_unique(
+        &mut target.tags,
+        input.tags.into_iter().map(|tag| normalize_text(&tag)),
+    );
     merge_backend_maps(&mut target.backends, &input.backends);
 }
 
@@ -356,7 +361,11 @@ fn safe_existing_file(candidate: &str, cwd: &Path, root: &Path) -> Option<PathBu
     }
 
     let path = PathBuf::from(candidate);
-    let path = if path.is_absolute() { path } else { cwd.join(path) };
+    let path = if path.is_absolute() {
+        path
+    } else {
+        cwd.join(path)
+    };
     let path = path.canonicalize().ok()?;
     if !path.is_file() || path.file_name()?.to_str()? == HOOK_FILENAME {
         return None;
@@ -405,10 +414,12 @@ fn write_hook_atomic(
     temporary.write_all(content.as_bytes())?;
     temporary.flush()?;
     temporary.as_file().sync_all()?;
-    temporary.persist(hook).map_err(|error| MaintainerError::Persist {
-        path: hook.to_path_buf(),
-        message: error.error.to_string(),
-    })?;
+    temporary
+        .persist(hook)
+        .map_err(|error| MaintainerError::Persist {
+            path: hook.to_path_buf(),
+            message: error.error.to_string(),
+        })?;
 
     #[cfg(unix)]
     {

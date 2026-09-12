@@ -15,10 +15,8 @@ fn make_repo() -> tempfile::TempDir {
 fn note_written_by_maintainer_is_immediately_visible_to_resolver() {
     let repo = make_repo();
     init(repo.path()).unwrap();
-    let backends: BackendMap = serde_yaml_ng::from_str(
-        "mem0:\n  top_k: 8\n  rerank: true\n",
-    )
-    .unwrap();
+    let backends: BackendMap =
+        serde_yaml_ng::from_str("mem0:\n  top_k: 8\n  rerank: true\n").unwrap();
 
     add_note(
         repo.path(),
@@ -86,10 +84,10 @@ fn automatic_event_anchors_only_explicit_existing_path_fields() {
     assert!(!names.iter().any(|name| name.contains("requests.get")));
 
     let resolved = resolve(&repo.path().join("src")).unwrap();
-    assert!(resolved
-        .effective_queries(&[])
+    assert!(resolved.effective_queries(&[]).iter().any(|query| query
+        .resources
         .iter()
-        .any(|query| query.resources.iter().any(|resource| resource.name() == "src/real.py")));
+        .any(|resource| resource.name() == "src/real.py")));
 }
 
 #[test]
@@ -98,11 +96,7 @@ fn maintainer_never_climbs_above_a_git_root_to_capture_writes() {
     let outer = temp.path().join("outer");
     let repo = outer.join("repo");
     fs::create_dir_all(repo.join(".git")).unwrap();
-    fs::write(
-        outer.join("MEMHOOKS.md"),
-        "---\nschema: memhooks/v2\n---\n",
-    )
-    .unwrap();
+    fs::write(outer.join("MEMHOOKS.md"), "---\nschema: memhooks/v2\n---\n").unwrap();
 
     let error = add_note(
         &repo,

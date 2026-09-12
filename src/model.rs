@@ -20,7 +20,9 @@ impl<'de> Deserialize<'de> for RecallQuery {
         let value = Value::deserialize(deserializer)?;
         Ok(match value {
             Value::String(value) => Self::Simple(value),
-            Value::Mapping(mapping) => Self::Structured(StructuredRecallQuery::from_mapping(mapping)),
+            Value::Mapping(mapping) => {
+                Self::Structured(StructuredRecallQuery::from_mapping(mapping))
+            }
             invalid => Self::Structured(StructuredRecallQuery::invalid(invalid)),
         })
     }
@@ -340,7 +342,7 @@ fn extend_extra(extra: &mut BTreeMap<String, Value>, mapping: Mapping) {
     for (key, value) in mapping {
         let key = match key {
             Value::String(key) => key,
-            other => format!("<non-string-key:{other:?}>")
+            other => format!("<non-string-key:{other:?}>"),
         };
         extra.insert(key, value);
     }

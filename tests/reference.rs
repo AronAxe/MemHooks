@@ -192,7 +192,9 @@ recall_queries:
     let resolved = resolve(&root.join("src")).unwrap();
     assert_eq!(resolved.recall_queries.len(), 1);
     assert_eq!(resolved.effective_queries(&[])[0].priority, Some(0.9));
-    assert!(resolved.recall_queries[0].source.ends_with("src/MEMHOOKS.md"));
+    assert!(resolved.recall_queries[0]
+        .source
+        .ends_with("src/MEMHOOKS.md"));
 }
 
 #[test]

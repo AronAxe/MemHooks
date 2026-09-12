@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use memhooks::{
-    find_root, handle_event, init as maintainer_init, resolve, validate_path, BackendMap, Diagnostic,
-    EffectiveQuery, Entity, NoteInput, ResolvedHook, Resource, Severity,
+    find_root, handle_event, init as maintainer_init, resolve, validate_path, BackendMap,
+    Diagnostic, EffectiveQuery, Entity, NoteInput, ResolvedHook, Resource, Severity,
 };
 use serde::Serialize;
 use serde_json::json;
@@ -471,33 +471,102 @@ fn sarif_uri(path: &Path, root: &Path) -> String {
 
 fn diagnostic_rule(code: &str) -> (&'static str, &'static str) {
     match code {
-        "MH000" => ("Invalid MemHooks file", "The file or YAML frontmatter could not be parsed."),
-        "MH001" => ("Unsupported schema", "Use the supported `schema: memhooks/v2`."),
-        "MH002" => ("Unknown top-level field", "Remove the field or move provider-native configuration under `backends.<provider>`."),
-        "MH003" => ("Missing recall query", "A structured recall entry needs a non-empty `query` string."),
-        "MH004" => ("Invalid query priority", "Priority must be finite and between 0.0 and 1.0."),
-        "MH005" => ("Unknown recall-query field", "Check the field name or move provider-native settings under `backends.<provider>`."),
+        "MH000" => (
+            "Invalid MemHooks file",
+            "The file or YAML frontmatter could not be parsed.",
+        ),
+        "MH001" => (
+            "Unsupported schema",
+            "Use the supported `schema: memhooks/v2`.",
+        ),
+        "MH002" => (
+            "Unknown top-level field",
+            "Remove the field or move provider-native configuration under `backends.<provider>`.",
+        ),
+        "MH003" => (
+            "Missing recall query",
+            "A structured recall entry needs a non-empty `query` string.",
+        ),
+        "MH004" => (
+            "Invalid query priority",
+            "Priority must be finite and between 0.0 and 1.0.",
+        ),
+        "MH005" => (
+            "Unknown recall-query field",
+            "Check the field name or move provider-native settings under `backends.<provider>`.",
+        ),
         "MH006" => ("Empty role", "Role names must be non-empty strings."),
-        "MH007" => ("Unknown routing condition", "Only supported routing conditions belong under `when`."),
+        "MH007" => (
+            "Unknown routing condition",
+            "Only supported routing conditions belong under `when`.",
+        ),
         "MH008" => ("Invalid entity", "An entity needs a non-empty name."),
-        "MH009" => ("Invalid entity salience", "Entity salience must be finite and between 0.0 and 1.0."),
-        "MH010" => ("Duplicate query", "Duplicate query text appears within one hook."),
-        "MH011" => ("Duplicate entity", "Duplicate entity name appears within one hook."),
-        "MH012" => ("Recall/exclude conflict", "The same text is both recalled and excluded."),
-        "MH013" => ("No hooks found", "No MEMHOOKS.md files were found in the requested scope."),
+        "MH009" => (
+            "Invalid entity salience",
+            "Entity salience must be finite and between 0.0 and 1.0.",
+        ),
+        "MH010" => (
+            "Duplicate query",
+            "Duplicate query text appears within one hook.",
+        ),
+        "MH011" => (
+            "Duplicate entity",
+            "Duplicate entity name appears within one hook.",
+        ),
+        "MH012" => (
+            "Recall/exclude conflict",
+            "The same text is both recalled and excluded.",
+        ),
+        "MH013" => (
+            "No hooks found",
+            "No MEMHOOKS.md files were found in the requested scope.",
+        ),
         "MH014" => ("Unknown entity field", "Check the entity field name."),
-        "MH015" => ("Duplicate resource", "Duplicate resource name appears within one hook."),
-        "MH016" => ("Provider field in core", "Provider-native fields belong under `backends.<provider>`."),
-        "MH017" => ("Provider query field in core", "Provider-native query fields belong under `backends.<provider>`."),
-        "MH018" => ("Empty backend namespace", "Backend namespace names must be non-empty."),
-        "MH019" => ("Invalid backend namespace", "A backend namespace must contain a mapping/object."),
+        "MH015" => (
+            "Duplicate resource",
+            "Duplicate resource name appears within one hook.",
+        ),
+        "MH016" => (
+            "Provider field in core",
+            "Provider-native fields belong under `backends.<provider>`.",
+        ),
+        "MH017" => (
+            "Provider query field in core",
+            "Provider-native query fields belong under `backends.<provider>`.",
+        ),
+        "MH018" => (
+            "Empty backend namespace",
+            "Backend namespace names must be non-empty.",
+        ),
+        "MH019" => (
+            "Invalid backend namespace",
+            "A backend namespace must contain a mapping/object.",
+        ),
         "MH020" => ("Invalid resource", "A resource needs a non-empty name."),
-        "MH021" => ("Invalid resource salience", "Resource salience must be finite and between 0.0 and 1.0."),
+        "MH021" => (
+            "Invalid resource salience",
+            "Resource salience must be finite and between 0.0 and 1.0.",
+        ),
         "MH022" => ("Unknown resource field", "Check the resource field name."),
-        "MH024" => ("Path does not exist", "Correct the target path before running MemHooks."),
-        "MH025" => ("Malformed recall query", "A recall-query entry or one of its known fields has the wrong YAML type."),
-        "MH026" => ("Malformed entity", "An entity entry or one of its known fields has the wrong YAML type."),
-        "MH027" => ("Malformed resource", "A resource entry or one of its known fields has the wrong YAML type."),
-        _ => ("MemHooks diagnostic", "See the MemHooks troubleshooting documentation."),
+        "MH024" => (
+            "Path does not exist",
+            "Correct the target path before running MemHooks.",
+        ),
+        "MH025" => (
+            "Malformed recall query",
+            "A recall-query entry or one of its known fields has the wrong YAML type.",
+        ),
+        "MH026" => (
+            "Malformed entity",
+            "An entity entry or one of its known fields has the wrong YAML type.",
+        ),
+        "MH027" => (
+            "Malformed resource",
+            "A resource entry or one of its known fields has the wrong YAML type.",
+        ),
+        _ => (
+            "MemHooks diagnostic",
+            "See the MemHooks troubleshooting documentation.",
+        ),
     }
 }
