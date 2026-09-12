@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Hermes pre_llm_call adapter for MemHooks.
 
 This adapter intentionally does not parse MEMHOOKS.md itself. The Rust reference
@@ -148,7 +147,7 @@ def build_context(plan: dict[str, Any]) -> str:
 def main() -> int:
     try:
         payload = json.load(sys.stdin)
-    except Exception:
+    except (json.JSONDecodeError, OSError, UnicodeError):
         emit({})
         return 0
 
@@ -159,7 +158,7 @@ def main() -> int:
     raw_cwd = payload.get("cwd") or os.getcwd()
     try:
         cwd = Path(raw_cwd).expanduser().resolve()
-    except Exception:
+    except (OSError, RuntimeError, ValueError):
         emit({})
         return 0
 
