@@ -19,6 +19,8 @@ jobs:
           grep -q '^version = "0.5.2"$' Cargo.toml
 
       - uses: dtolnay/rust-toolchain@1.78.0
+        with:
+          components: rustfmt, clippy
 
       - name: Verify crate
         working-directory: token-terminator
