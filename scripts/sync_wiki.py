@@ -52,7 +52,7 @@ def validate_manifest(files: dict[str, str]) -> dict[str, str]:
 
 def git(repo: Path, *args: str) -> bytes:
     return subprocess.run(["git", "-C", str(repo), *args], check=True,
-                          stdout=subprocess.PIPE, stderr=subprocess.PIPE).stdout
+                          capture_output=True).stdout
 
 
 def legacy_manifest(repo: Path, wiki: Path) -> dict[str, str]:
