@@ -15,18 +15,6 @@
   <img src="https://raw.githubusercontent.com/AronAxe/MemHooks/main/assets/memhook2.png" alt="How MemHooks works" width="100%" />
 </p>
 
-## End-to-end Hermes recall (opt-in)
-
-The repository now includes a [native Hermes + Hindsight Recall plugin](docs/hermes-recall.md):
-successful file-tool activity → Rust-validated local cues → authorized backend
-retrieval → bounded, source-attributed memories in the next user turn. No memory
-writes or Reflect calls are made. Backend URL, bank, credentials, project scope,
-query limits and sensitive-scope permission come from host configuration, never
-repository text. The existing routing-only adapter remains unchanged.
-
-This is an unreleased repository integration, installed separately; the published
-Rust crate remains **0.6.0** and the file schema remains **`memhooks/v2`**.
-
 ## The idea
 
 > **You can't recall what you don't know you know.**
