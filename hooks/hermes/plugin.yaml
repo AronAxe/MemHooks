@@ -1,0 +1,8 @@
+name: memhooks-recall
+version: 0.6.0
+description: Opt-in filesystem-scoped Hindsight recall using the MemHooks Rust resolver
+provides_hooks:
+  - pre_llm_call
+  - post_tool_call
+  - on_session_finalize
+  - on_session_reset
