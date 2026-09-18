@@ -9,7 +9,7 @@ use crate::validator::{discover_hooks, require_valid};
 use fs2::FileExt;
 use serde_json::Value as JsonValue;
 use std::collections::BTreeMap;
-use std::fs::{self, File};
+use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use tempfile::NamedTempFile;
@@ -483,7 +483,7 @@ fn write_hook_atomic(
 
     #[cfg(unix)]
     {
-        if let Ok(directory) = File::open(parent) {
+        if let Ok(directory) = fs::File::open(parent) {
             let _ = directory.sync_all();
         }
     }
