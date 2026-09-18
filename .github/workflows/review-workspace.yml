@@ -1,0 +1,29 @@
+name: Review Workspace
+
+on:
+  push:
+    branches: [fix/review-hardening-0.6.0]
+    paths: [.github/workflows/review-workspace.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Prepare source and baseline executable
+        run: |
+          set -euo pipefail
+          cargo build --locked
+          mkdir -p /tmp/review-workspace
+          git archive HEAD | tar -x -C /tmp/review-workspace
+          rm -rf /tmp/review-workspace/assets
+          cp target/debug/memhooks /tmp/review-workspace/memhooks-baseline
+          tar -czf /tmp/memhooks-workspace.tar.gz -C /tmp/review-workspace .
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: memhooks-review-workspace
+          path: /tmp/memhooks-workspace.tar.gz
+          retention-days: 1
