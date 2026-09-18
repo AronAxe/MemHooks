@@ -7,7 +7,7 @@
   <img alt="Hermes" src="https://img.shields.io/badge/Hermes-compatible-00bcd4" />
   <img alt="Backend neutral" src="https://img.shields.io/badge/memory%20backend-neutral-2ea44f" />
   <img alt="Crates.io" src="https://img.shields.io/crates/v/memhooks" />
-  <img alt="Version" src="https://img.shields.io/badge/version-0.5.1-orange" />
+  <img alt="Version" src="https://img.shields.io/badge/version-0.6.0-orange" />
   <img alt="License" src="https://img.shields.io/badge/license-MIT-blue" />
 </p>
 
@@ -60,7 +60,7 @@ do the work
 - **MemHooks reference engine:** parses, validates, resolves, explains **and maintains** the hook frontmatter.
 - **Memory backend:** stores and retrieves the actual memories.
 
-There is deliberately **one structured data path** in v0.5.1:
+There is deliberately **one structured data path** in v0.6.0:
 
 ```text
 agent/runtime
@@ -173,13 +173,13 @@ cargo install memhooks
 For an exact release:
 
 ```bash
-cargo install memhooks --version 0.5.1
+cargo install memhooks --version 0.6.0
 ```
 
 Rust runtimes can use the same engine directly:
 
 ```bash
-cargo add memhooks@0.5.1
+cargo add memhooks@0.6.0
 ```
 
 ## CLI
@@ -236,9 +236,43 @@ memhooks event
 
 Automatic anchors only inspect explicit path-bearing tool-input fields and only retain files that actually exist inside the canonical project root. The maintainer does not regex arbitrary file contents for dotted strings.
 
-## v0.5.1 hardening
+## v0.6.0: reliability and task-aware recall
 
-v0.5.1 is an implementation hardening release; the protocol remains `memhooks/v2`.
+The file schema stays **`memhooks/v2`**; the machine handoff is now explicitly
+versioned as **`memhooks/plan-v1`**. Update the Rust CLI and Hermes adapter together.
+
+- All filesystem entry points share fallible canonical path/root resolution,
+  including default `.` invocations from nested directories.
+- Semantic validation is required before resolution or persistence. Invalid role
+  routing, priorities, entities and backend namespaces fail with diagnostics;
+  unknown extension fields remain round-trippable warnings.
+- Hook and lock symlinks/special files are rejected. Initialization rechecks file
+  state under the same exclusive lock as creation, preserving concurrent notes.
+- `MEMHOOKS_MAX_CHARS` caps the **complete emitted context**, including its wrapper.
+  Truncation preserves valid JSON and never retains queries without their routing
+  constraints. Invalid optional-hook input/configuration produces `{}` plus a diagnostic.
+- Hosts can supply session-local `active_files` and `active_roles`. The loader
+  resolves at most eight relevant directory scopes under one shared timeout,
+  rather than loading every hook in the project. Sibling routing controls remain separate.
+- New/refreshed automatic cues use directory-qualified identities. Explicit
+  delete/rename file events reconcile local generated resources; `prune` catches
+  stale cues from changes made outside those events.
+
+```bash
+memhooks prune --all --dry-run
+memhooks prune --all
+memhooks remove --query "An obsolete local cue" --dry-run
+memhooks remove --query "An obsolete local cue"
+```
+
+These commands only edit retrieval cues, never backend memories. Dry runs do not
+change hook files or create locks. `explain --format json` reports role,
+inheritance-cut and override omissions; the bounded handoff reports budget omissions.
+See [runtime contract and migration](docs/runtime-plan.md).
+
+## v0.5.1 foundation (historical)
+
+v0.5.1 established the shared implementation; the protocol remains `memhooks/v2`.
 
 Notable changes:
 
@@ -348,7 +382,7 @@ If MemHooks is about **retrieving the right context**, [**Token Terminator**](ht
 
 ## Status
 
-**v0.5.1 — backend-neutral `memhooks/v2` + one normative resolver/maintainer data path + hardened runtime/diagnostic/security boundaries.**
+**v0.6.0 — validated routing, consistent project boundaries, active-file recall, bounded context, and generated-cue lifecycle. Protocol: `memhooks/v2`.**
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/AronAxe/MemHooks/main/assets/memhooklogo.png" alt="MemHooks logo" width="300" />

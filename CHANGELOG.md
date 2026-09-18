@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.6.0] - 2026-09-18
+
+### Fixed
+- Canonical nested/default path handling across initialization, notes, resolution and validation.
+- Reject semantically invalid hooks before planning or persistence, including direct library writes.
+- Reject hook/lock symlinks and special files; use no-follow opens on Unix/Windows.
+- Recheck initialization under the exclusive lock; preserve intervening writes.
+- Bound the exact emitted context, including provenance and wrapper; handle malformed events/settings gracefully.
+- Accept valid explicit filenames containing parentheses, spaces and Unicode.
+- Surface discovery I/O errors instead of reporting a misleading successful scan.
+
+### Added
+- Versioned `memhooks/plan-v1` handoff, with role/override/inheritance omission reasons.
+- Host-supplied active-file/role routing, bounded scopes, shared timeout and sibling-context isolation.
+- Scope-qualified generated query identities and explicit rename/delete reconciliation.
+- `prune [PATH] [--all] [--dry-run]` and `remove --query TEXT [--cwd PATH] [--dry-run]`.
+- Adversarial regressions, deterministic initialization interleaving, direct-library validation tests,
+  real Rust-to-Python adapter integration and platform smoke coverage.
+
+### Migration
+- The file schema remains `memhooks/v2`; update CLI and adapter together.
+- `find_root`, `inheritance_chain`, `discover_hooks` and `resolver::resolve_parsed` now return `Result`.
+- `ParseError.code` is an owned `String`; use `.into()` when constructing it from a literal.
+- Hook-file symlinks (including in-root links) are no longer accepted.
+- Legacy generated query identities are migrated on the next relevant file event.
+
 ## 0.5.1 — 2026-09-12
 
 - Unified reading and writing around one normative `memhooks/v2` data path: the Rust reference maintainer now writes semantic notes and automatic file anchors directly into YAML frontmatter consumed by the resolver.

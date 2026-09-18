@@ -1,5 +1,9 @@
 # Hermes Integration
 
+
+> **0.6.0 update:** See [[Release-0.6.0]] for validated routing, canonical paths,
+> active-file/role input, exact context budgets, generated-cue cleanup and API migration.
+
 Hermes/Hermes Desktop is the reference runtime integration shipped with MemHooks.
 
 The important architectural rule is:
@@ -160,3 +164,12 @@ These are runtime controls, not manual chores for the user.
 The repository's versioned Hermes documentation remains the implementation-level source:
 
 [hooks/hermes/README.md](https://github.com/AronAxe/MemHooks/blob/main/hooks/hermes/README.md)
+
+### Task-aware pre-LLM events (0.6)
+
+The host may supply `active_files: ["src/auth/login.py"]` and
+`active_roles: ["reviewer"]` in the pre-LLM event. The host retains the
+session-local activity set. No extra LLM call or global cross-session cache
+is introduced. Relevant file scopes are resolved before budgeting, sibling
+constraints remain separate, and role/override/budget omissions are observable.
+Without these fields cwd routing remains available.

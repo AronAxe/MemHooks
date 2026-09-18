@@ -1,0 +1,97 @@
+name: Release 0.6.0
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: memhooks-release-0.6.0
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.repository == 'AronAxe/MemHooks'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+      - name: Check release identity
+        id: identity
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
+          VERSION="$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["package"]["version"])')"
+          if test "$VERSION" != '0.6.0'; then
+            echo 'release=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if git show-ref --verify --quiet refs/tags/v0.6.0; then
+            test "$(git rev-list -n1 v0.6.0)" = "$RELEASE_SHA"
+          fi
+          echo 'release=true' >> "$GITHUB_OUTPUT"
+      - name: Publish locked crate
+        if: steps.identity.outputs.release == 'true'
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          STATUS="$(curl --retry 3 -sS -A 'MemHooks release verification' -o /tmp/crate-version.json -w '%{http_code}' https://crates.io/api/v1/crates/memhooks/0.6.0)"
+          case "$STATUS" in
+            200) echo 'Version already exists; checking its source commit before proceeding.' ;;
+            404)
+              if test -z "$CARGO_REGISTRY_TOKEN"; then
+                echo '::error::CARGO_REGISTRY_TOKEN is not configured; publication was not attempted.'
+                exit 1
+              fi
+              cargo publish --locked
+              ;;
+            *) echo "::error::Registry metadata request failed with HTTP $STATUS"; exit 1 ;;
+          esac
+      - name: Verify registry source and reinstall exact version
+        if: steps.identity.outputs.release == 'true'
+        run: |
+          set -euo pipefail
+          curl --fail --retry 6 --retry-all-errors --retry-delay 5 -sS -L https://static.crates.io/crates/memhooks/memhooks-0.6.0.crate -o /tmp/memhooks-0.6.0.crate
+          tar -xOf /tmp/memhooks-0.6.0.crate memhooks-0.6.0/.cargo_vcs_info.json > /tmp/memhooks-vcs.json
+          python3 - <<'PY'
+          import json, os
+          vcs = json.load(open('/tmp/memhooks-vcs.json'))
+          assert vcs['git']['sha1'] == os.environ['RELEASE_SHA'], vcs
+          assert not vcs['git'].get('dirty', False), vcs
+          print('Verified published source commit:', vcs['git']['sha1'])
+          PY
+          cargo install memhooks --version '=0.6.0' --locked --force --root /tmp/memhooks-registry-check
+          test "$(/tmp/memhooks-registry-check/bin/memhooks --version)" = 'memhooks 0.6.0'
+          /tmp/memhooks-registry-check/bin/memhooks validate --all
+      - name: Create matching GitHub release
+        if: steps.identity.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          text = Path('CHANGELOG.md').read_text()
+          notes = text.split('## [0.6.0]', 1)[1].split('\n## [', 1)[0]
+          Path('/tmp/memhooks-release-notes.md').write_text('MemHooks 0.6.0\n'+notes)
+          PY
+          if ! gh release view v0.6.0 >/dev/null 2>&1; then
+            gh release create v0.6.0 --target "$RELEASE_SHA" --title 'MemHooks 0.6.0 — reliable task-aware recall' --notes-file /tmp/memhooks-release-notes.md
+          fi
+          git fetch origin refs/tags/v0.6.0:refs/tags/v0.6.0
+          test "$(git rev-list -n1 v0.6.0)" = "$RELEASE_SHA"
+          echo "Verified release v0.6.0 at $RELEASE_SHA"

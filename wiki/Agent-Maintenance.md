@@ -1,5 +1,9 @@
 # Agent Maintenance
 
+
+> **0.6.0 update:** See [[Release-0.6.0]] for validated routing, canonical paths,
+> active-file/role input, exact context budgets, generated-cue cleanup and API migration.
+
 This page exists partly to make one thing unmistakable:
 
 > **Normal users are not expected to manually curate `MEMHOOKS.md`.**
@@ -172,3 +176,11 @@ MemHooks should remain an **index into memory**, not become the memory itself.
 Humans are still free to edit hooks. The point is not to prohibit that—it is to avoid designing the normal workflow around it.
 
 If the user explicitly adds or changes routing, the agent/runtime should treat that as intentional project input and preserve it unless a clear conflict/error requires attention.
+
+### Cleanup commands (0.6)
+
+`memhooks prune --all --dry-run` previews stale generated file cues; remove
+`--dry-run` to apply. `memhooks remove --query "Obsolete local cue" --dry-run`
+previews removal from the nearest local hook. These operations never delete
+backend memories. Explicit rename/delete file events also reconcile generated
+resources. Missing files are cleanup inputs only, not newly created anchors.

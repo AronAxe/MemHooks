@@ -241,3 +241,12 @@ See [`SECURITY.md`](../SECURITY.md) for the explicit trust boundary and reportin
 This is an **agent/runtime maintenance issue**, not a task the end user should have to solve manually.
 
 The runtime should prune stale/redundant routing cues and keep the file functioning as an index rather than storing the memories themselves.
+
+## 0.6 diagnostics and compatibility
+
+An unversioned binary is not compatible with the 0.6 adapter. Update both when
+`unsupported plan version` appears. `MH029` rejects hook/lock symlinks and special
+files; replace links with ordinary project-local hooks. `MH030` means discovery
+could not inspect the requested tree: fix the filesystem error rather than
+treating the scan as clean. Invalid optional-hook settings return `{}` with a
+stderr diagnostic. See [runtime settings and migration](runtime-plan.md).

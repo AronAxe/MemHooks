@@ -1,7 +1,7 @@
 ---
 name: memhooks
 description: Backend-neutral, directory-scoped memory retrieval routing for AI agents. Resolve MEMHOOKS.md from workspace root to the active directory, apply role routing and priority, then translate provider-neutral recall intent plus optional backends.<provider> hints to the active memory system.
-version: 0.5.1
+version: 0.6.0
 author: Aron Bijl
 license: MIT
 compatibility: Agent Skills / agentskills.io; Hermes Agent and Hermes Desktop; other skill-capable agents with filesystem access and optional memory tools.

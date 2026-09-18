@@ -2,7 +2,7 @@ use crate::model::HookFrontmatter;
 use saphyr::{LoadableYamlNode, MarkedYamlOwned, YamlDataOwned};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
@@ -35,7 +35,7 @@ impl ParsedHook {
 #[derive(Debug, Error, Clone)]
 #[error("{message}")]
 pub struct ParseError {
-    pub code: &'static str,
+    pub code: String,
     pub path: PathBuf,
     pub message: String,
     pub line: Option<usize>,
@@ -44,13 +44,16 @@ pub struct ParseError {
 
 pub fn parse_hook(path: impl AsRef<Path>) -> Result<ParsedHook, ParseError> {
     let path = path.as_ref();
-    let source = fs::read_to_string(path).map_err(|error| ParseError {
-        code: "MH000",
-        path: path.to_path_buf(),
-        message: format!("could not read file: {error}"),
-        line: None,
-        column: None,
-    })?;
+    let mut source = String::new();
+    crate::filesystem::open_regular_file(path, false)?
+        .read_to_string(&mut source)
+        .map_err(|error| ParseError {
+            code: "MH000".into(),
+            path: path.to_path_buf(),
+            message: format!("could not read file: {error}"),
+            line: None,
+            column: None,
+        })?;
     parse_hook_str(path, &source)
 }
 
@@ -60,7 +63,7 @@ pub fn parse_hook_str(path: impl AsRef<Path>, source: &str) -> Result<ParsedHook
     let first = lines.next().unwrap_or_default();
     if first.trim() != "---" {
         return Err(ParseError {
-            code: "MH000",
+            code: "MH000".into(),
             path,
             message: "MEMHOOKS.md must begin with YAML frontmatter (`---`)".into(),
             line: Some(1),
@@ -75,7 +78,7 @@ pub fn parse_hook_str(path: impl AsRef<Path>, source: &str) -> Result<ParsedHook
         .skip(1)
         .find_map(|(index, line)| (line.trim() == "---").then_some(index))
         .ok_or_else(|| ParseError {
-            code: "MH000",
+            code: "MH000".into(),
             path: path.clone(),
             message: "unterminated YAML frontmatter; expected closing `---`".into(),
             line: Some(all_lines.len().max(1)),
@@ -86,7 +89,7 @@ pub fn parse_hook_str(path: impl AsRef<Path>, source: &str) -> Result<ParsedHook
     let frontmatter = serde_yaml_ng::from_str::<HookFrontmatter>(&yaml).map_err(|error| {
         let location = error.location();
         ParseError {
-            code: "MH000",
+            code: "MH000".into(),
             path: path.clone(),
             message: format!("invalid YAML frontmatter: {error}"),
             line: location.as_ref().map(|location| location.line() + 1),
@@ -112,7 +115,7 @@ pub fn parse_hook_str(path: impl AsRef<Path>, source: &str) -> Result<ParsedHook
 
 pub fn render_hook(frontmatter: &HookFrontmatter, body: &str) -> Result<String, ParseError> {
     let mut yaml = serde_yaml_ng::to_string(frontmatter).map_err(|error| ParseError {
-        code: "MH000",
+        code: "MH000".into(),
         path: PathBuf::from("MEMHOOKS.md"),
         message: format!("could not serialize MemHooks frontmatter: {error}"),
         line: None,
@@ -139,7 +142,7 @@ pub fn require_v2_schema(parsed: &ParsedHook) -> Result<(), ParseError> {
     }
     let location = parsed.location("schema");
     Err(ParseError {
-        code: "MH001",
+        code: "MH001".into(),
         path: parsed.path.clone(),
         message: format!(
             "unsupported MemHooks schema `{}`; expected `memhooks/v2`",

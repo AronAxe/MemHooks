@@ -211,7 +211,7 @@ fn git_root_is_a_hard_boundary_for_outer_hooks() {
     )
     .unwrap();
 
-    assert_eq!(find_root(&sub), repo);
+    assert_eq!(find_root(&sub).unwrap(), repo.canonicalize().unwrap());
     let resolved = resolve(&sub).unwrap();
     assert!(resolved.sources.is_empty());
     assert!(resolved.recall_queries.is_empty());

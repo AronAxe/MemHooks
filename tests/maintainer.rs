@@ -106,7 +106,12 @@ fn maintainer_never_climbs_above_a_git_root_to_capture_writes() {
         },
     )
     .unwrap_err();
-    assert!(error.to_string().contains(&repo.display().to_string()));
+    match error {
+        memhooks::MaintainerError::NotEnabled(path) => {
+            assert_eq!(path, repo.canonicalize().unwrap())
+        }
+        other => panic!("expected disabled repository boundary, got {other}"),
+    }
     let outer_text = fs::read_to_string(outer.join("MEMHOOKS.md")).unwrap();
     assert!(!outer_text.contains("should not escape"));
 }
