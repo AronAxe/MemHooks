@@ -6,24 +6,76 @@ on:
     paths: [.github/workflows/review-workspace.yml]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  snapshot:
+  verify:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-      - name: Prepare source and baseline executable
+        with:
+          ref: fix/review-hardening-0.6.0
+          fetch-depth: 0
+      - name: Apply checksum-verified edits
+        run: |
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          bundle = Path('.review/core.json')
+          if bundle.exists():
+              for name, checksum, edits in json.loads(bundle.read_text()):
+                  path = Path(name)
+                  source = path.read_bytes() if path.exists() else b''
+                  assert hashlib.sha256(source).hexdigest() == checksum, name
+                  lines = source.decode().splitlines(True)
+                  for start, end, replacement in reversed(edits):
+                      lines[start:end] = [replacement]
+                  text = ''.join(lines)
+                  if name == 'src/maintainer.rs':
+                      text = text.replace("replace('" + chr(92) + "',", "replace('" + chr(92)*2 + "',")
+                  path.parent.mkdir(parents=True, exist_ok=True)
+                  path.write_text(text)
+              bundle.unlink()
+          path = Path('tests/test_hermes_loader.py')
+          text = path.read_text()
+          if '"plan_version":' not in text:
+              text = text.replace('    plan = {', '    plan = {\n        "plan_version": "memhooks/plan-v1",\n        "omitted_queries": [],')
+              text = text.replace('    assert routing.get("truncated") is True', '    assert routing.get("truncated") is True\n    assert len(context) <= 350')
+              path.write_text(text)
+          PY
+          cargo fmt --all
+          python3 -m pip install --disable-pip-version-check 'pytest>=8,<10' ruff
+          ruff check --fix hooks scripts tests
+      - name: Commit formatted implementation
         run: |
           set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add Cargo.toml Cargo.lock src tests hooks
+          git add -u .review
+          if ! git diff --cached --quiet; then
+            git commit -m 'feat: validated filesystem boundaries and generated-cue lifecycle'
+            git push origin HEAD:refs/heads/fix/review-hardening-0.6.0
+          fi
+      - name: Rust and integration verification
+        run: |
+          set -euo pipefail
+          cargo clippy --locked --all-targets --all-features -- -D warnings
+          cargo test --locked --all-targets --all-features
+          cargo test --locked --doc
           cargo build --locked
-          mkdir -p /tmp/review-workspace
-          git archive HEAD | tar -x -C /tmp/review-workspace
-          rm -rf /tmp/review-workspace/assets
-          cp target/debug/memhooks /tmp/review-workspace/memhooks-baseline
-          tar -czf /tmp/memhooks-workspace.tar.gz -C /tmp/review-workspace .
+          MEMHOOKS_REQUIRE_BINARY=1 python3 -m pytest -q
+      - name: Prepare source and executable artifact
+        if: always()
+        run: |
+          mkdir -p /tmp/review-result
+          git archive HEAD | tar -x -C /tmp/review-result
+          rm -rf /tmp/review-result/assets
+          if test -f target/debug/memhooks; then cp target/debug/memhooks /tmp/review-result/memhooks-built; fi
+          tar -czf /tmp/memhooks-result.tar.gz -C /tmp/review-result .
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
         with:
-          name: memhooks-review-workspace
-          path: /tmp/memhooks-workspace.tar.gz
+          name: memhooks-review-result
+          path: /tmp/memhooks-result.tar.gz
           retention-days: 1
