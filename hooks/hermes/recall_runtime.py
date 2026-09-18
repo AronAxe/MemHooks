@@ -1,15 +1,15 @@
 """Native Hermes memory loop; routing semantics remain in the Rust CLI."""
 from __future__ import annotations
 
-from collections import Counter, OrderedDict
 import json
 import logging
 import math
 import os
-from pathlib import Path
 import subprocess
 import threading
 import time
+from collections import Counter, OrderedDict
+from pathlib import Path
 
 from . import hindsight_recall as transport
 from . import memhooks_pre_llm as routing
@@ -105,7 +105,7 @@ def explicit_files(args, cwd, root, *, existing=True):
 def request_body(query, backend):
     native = query.get("backends", {}).get("hindsight", {})
     if not isinstance(native, dict):
-        raise ValueError("invalid_provider_options")
+        raise TypeError("invalid_provider_options")
     if native.get("bank", backend["bank"]) != backend["bank"]:
         raise ValueError("bank_not_authorized")
     if native.get("strategy", "recall") != "recall":
@@ -167,7 +167,7 @@ class RecallRuntime:
                 for key in list(self.sessions):
                     if key[0] == profile and key[2] in ids:
                         del self.sessions[key]
-        except Exception:
+        except Exception:  # noqa: BLE001 - secret-safe host/worker boundary
             LOG.warning("MemHooks session cleanup skipped")
 
     def post_tool_call(self, **event):
@@ -191,7 +191,7 @@ class RecallRuntime:
                                         env={**os.environ, "MEMHOOKS_ROOT": str(cfg["root"])})
                 if result.returncode:
                     LOG.warning("MemHooks cue maintenance failed")
-        except Exception as error:
+        except Exception as error:  # noqa: BLE001 - secret-safe host boundary
             LOG.warning("MemHooks file activity skipped (%s)", type(error).__name__)
 
     def pre_llm_call(self, **event):
@@ -216,7 +216,7 @@ class RecallRuntime:
                 return None
             context = self._retrieve(cfg, plans, token or "", deadline)
             return {"context": context} if context else None
-        except Exception as error:
+        except Exception as error:  # noqa: BLE001 - secret-safe host boundary
             # Fail-soft hook, fail-closed retrieval. Never echo exception messages
             # that could contain a token, query, memory, URL or server response.
             LOG.warning("MemHooks recall skipped (%s)", type(error).__name__)
@@ -260,7 +260,7 @@ class RecallRuntime:
                 continue
             try:
                 body = request_body(query, backend)
-            except ValueError as error:
+            except (ValueError, TypeError) as error:
                 issues[str(error)] += 1
                 continue
             origin = {"source": query["source"], "target": plan["target"], "scope": plan.get("scope"),

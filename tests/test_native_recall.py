@@ -3,15 +3,15 @@
 No cloud calls or live credentials. Binary checks are mandatory in Rust CI and
 explicitly skipped in the Python-only matrix, like the existing integration suite.
 """
-from collections import Counter
 import importlib.util
 import json
 import os
-from pathlib import Path
 import sys
 import threading
 import time
+from collections import Counter
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 import pytest
 

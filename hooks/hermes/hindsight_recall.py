@@ -7,9 +7,9 @@ from __future__ import annotations
 
 import ipaddress
 import json
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 from urllib.error import HTTPError
 from urllib.parse import quote, urlsplit
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
@@ -59,7 +59,7 @@ def request(payload: dict, timeout: float) -> list[dict]:
         raise ValueError("response exceeds limit")
     data = json.loads(raw)
     if not isinstance(data, dict) or not isinstance(data.get("results"), list):
-        raise ValueError("malformed recall response")
+        raise TypeError("malformed recall response")
     results = data["results"]
     if any(not isinstance(item, dict) or not isinstance(item.get("id"), str)
            or not isinstance(item.get("text"), str) or not item["id"]
@@ -99,7 +99,7 @@ def main() -> None:
         output = {"results": results, "status": "ok"}
     except HTTPError as error:
         output = {"results": [], "status": "unauthorized" if error.code in (401, 403) else "backend_error"}
-    except Exception:
+    except Exception:  # noqa: BLE001 - secret-safe host/worker boundary
         # This is a process boundary: do not echo URLs, response bodies or secrets.
         output = {"results": [], "status": "backend_error"}
     print(json.dumps(output, ensure_ascii=True, allow_nan=False))
