@@ -64,7 +64,12 @@ def test_launcher_defaults_to_event_and_preserves_stdin(tmp_path):
     assert f"STDIN={payload}" in result.stdout
 
 
-def test_launcher_fails_clearly_when_binary_is_unavailable(tmp_path):
+def test_launcher_fails_clearly_when_binary_is_unavailable(tmp_path, monkeypatch):
+    # Isolate source-relative discovery from binaries built by integration CI.
+    isolated_script = tmp_path / "scripts" / SCRIPT.name
+    isolated_script.parent.mkdir()
+    isolated_script.write_bytes(SCRIPT.read_bytes())
+    monkeypatch.setattr(sys.modules[__name__], "SCRIPT", isolated_script)
     env = os.environ.copy()
     env.pop("MEMHOOKS_BIN", None)
     env["PATH"] = str(tmp_path)
