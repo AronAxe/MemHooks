@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - "wiki/**"
+      - "scripts/sync_wiki.py"
       - ".github/workflows/publish-wiki.yml"
 
 permissions:
@@ -21,6 +22,9 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          # The first manifest can recover ownership from historical sync commits.
+          fetch-depth: 0
       - name: Publish managed wiki pages
         env:
           GH_TOKEN: ${{ secrets.WIKI_TOKEN || github.token }}
@@ -34,8 +38,8 @@ jobs:
           fi
           WIKI_DIR="$(mktemp -d)"
           git clone --quiet "https://x-access-token:${GH_TOKEN}@github.com/${REPOSITORY}.wiki.git" "$WIKI_DIR"
-          # Only overwrite source-managed pages; preserve separately authored pages.
-          cp -a wiki/. "$WIKI_DIR"/
+          # Preflight ownership/conflicts, remove only stale managed files, then sync.
+          python3 scripts/sync_wiki.py "$WIKI_DIR"
           cd "$WIKI_DIR"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

@@ -145,3 +145,52 @@ Because the resolver, maintainer, and runtime adapters must share one protocol i
 ## Trusted publishing
 
 Now that crate ownership exists, crates.io trusted/passwordless publishing can be preferred when configured. Until then, keep the registry token limited to the repository secret and rotate/revoke it according to normal credential hygiene.
+
+## Exact release-note extraction
+
+For an explicitly authorized release, generate its notes with the tested helper,
+not an inline split on one heading style:
+
+```bash
+python3 scripts/release_notes.py 0.6.0 --output /tmp/memhooks-release-notes.md
+```
+
+This command only writes a local file; it does not publish, create a tag, or edit
+an existing release. A future authorized publisher should pass this file to
+`gh release create --notes-file`. The retired 0.6.0 publisher is not restored.
+The helper accepts bracketed/plain semver headings and optional `v` prefixes,
+includes the requested heading and its subsections, and stops at the next H1/H2
+heading regardless of its style. Headings inside fenced examples are ignored.
+Missing or duplicate requested versions fail instead of emitting ambiguous notes.
+
+## Managed wiki lifecycle
+
+The wiki workflow uses `scripts/sync_wiki.py`, not blanket deletion or copy-only
+synchronization. It commits `.memhooks-managed-wiki.json` in the **wiki repository**,
+recording a SHA-256 hash for every repository-managed page or asset. Subsequent
+syncs remove only previously-managed paths absent from the current `wiki/` tree.
+Renames therefore add the new path and remove the old one; unrelated manual pages
+and wiki Git metadata remain untouched.
+
+On first use, ownership is recovered from source commits named by historical wiki
+commit messages of the form `docs: sync MemHooks wiki from <40-character SHA>`.
+The newest recorded contents of every historically copied path form the baseline,
+including pages removed before the last old-style sync. Full checkout history is
+needed for this migration. Without such provenance, no old path is guessed to be
+managed. Identical current pages can be adopted; conflicting manual pages cannot.
+A missing recorded source commit or invalid manifest stops the sync, rather than
+silently reverting to an unsafe cleanup policy.
+
+All writes/deletions are preflighted. A remotely edited managed page whose contents
+match neither its last synced hash nor its current source causes a conflict before
+any page changes. Reconcile the edit explicitly in the source/wiki and retry;
+do not delete the manifest to bypass the conflict. Symlinks, traversal paths and
+Git metadata paths are rejected. An interrupted local sync is never pushed by
+the workflow; pages and ownership manifest are committed/pushed together.
+
+To inspect the plan against a local clone of the wiki without changing it:
+
+```bash
+python3 scripts/sync_wiki.py /path/to/MemHooks.wiki --repo /path/to/MemHooks --dry-run
+python3 -m pytest -q tests/test_publishing.py
+```
