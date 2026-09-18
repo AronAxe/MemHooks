@@ -60,7 +60,7 @@ reference resolver reads the same frontmatter
 relevant memory is recalled before substantive work
 ```
 
-There is no separate Markdown-body JSON note database in v0.5.1. The writer and resolver share one structured data model.
+There is no separate Markdown-body JSON note database in v0.6.0. The writer and resolver share one structured data model.
 
 The human user does not need to decide how many local hooks exist, how long they should be, or how individual retrieval questions are phrased. Those are agent/runtime maintenance concerns.
 

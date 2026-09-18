@@ -274,3 +274,10 @@ Before shipping an integration, verify that it:
 - does not parse arbitrary file contents for deterministic path anchors;
 - does not allow hook files to elevate prompt privilege;
 - does not turn retrieval metadata into automatic memory writes.
+
+## 0.6 runtime and maintenance additions
+
+See [the runtime contract and migration guide](https://github.com/AronAxe/MemHooks/blob/main/docs/runtime-plan.md)
+for `memhooks/plan-v1`, session-local `active_files`/`active_roles`, exact emitted
+context limits, `prune`/`remove` previews, fallible Rust APIs and the hook/lock
+symlink policy. Install CLI 0.6.0 and the matching adapter together.

@@ -185,3 +185,10 @@ The CLI does not:
 - start a daemon.
 
 It owns the protocol mechanics—parsing, maintenance, validation, inheritance, role filtering, provider-configuration preservation/merge, explanation, and provenance—not the memory provider itself.
+
+## 0.6 runtime and maintenance additions
+
+See [the runtime contract and migration guide](https://github.com/AronAxe/MemHooks/blob/main/docs/runtime-plan.md)
+for `memhooks/plan-v1`, session-local `active_files`/`active_roles`, exact emitted
+context limits, `prune`/`remove` previews, fallible Rust APIs and the hook/lock
+symlink policy. Install CLI 0.6.0 and the matching adapter together.

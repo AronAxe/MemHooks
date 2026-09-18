@@ -34,3 +34,14 @@ The reference maintainer uses project-root containment, exclusive file locking, 
 ## Supported versions
 
 Security fixes are applied to the latest published release. Users should upgrade to the newest patch release before reporting an issue already fixed in a later version.
+
+
+## 0.6 filesystem and routing boundary
+
+Resolution and maintenance require semantic validation, not merely a supported
+schema string. Hook/lock symlinks and special files are rejected, including
+in-root links; Unix/Windows no-follow final-component opens harden the read path.
+This is not a filesystem sandbox against concurrent replacement of ancestor
+directories/mount points. Hosts must secure the working filesystem and enforce
+authorization independently. Runtime budgets retain constraints with their
+queries or discard the routing plan; role hints never grant permissions.

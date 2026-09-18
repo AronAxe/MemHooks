@@ -6,7 +6,7 @@ This is maintainer documentation for publishing `memhooks` to crates.io.
 
 MemHooks is published on crates.io and the repository has an authenticated publishing secret configured. Every release must be validated from the **committed lockfile** and the exact public registry version must be installed back after publication.
 
-v0.5.1 keeps protocol schema `memhooks/v2`; it is an implementation hardening release.
+v0.6.0 keeps protocol schema `memhooks/v2`; it adds reliability fixes, task-aware routing and cue lifecycle support.
 
 ## Before every release
 
@@ -25,13 +25,13 @@ pytest -q
 cargo publish --dry-run --locked
 ```
 
-CI also checks the declared Rust 1.78 MSRV and Python 3.10/3.12 compatibility.
+CI also checks Rust 1.78, Python 3.10/3.12, real-binary Python integration, and Windows/macOS Rust tests.
 
 Do **not** remove `Cargo.lock` as part of the release flow. MemHooks ships a binary as well as a library, so the lockfile is committed and CI uses `--locked`.
 
 ### Rust 1.78 dependency floor
 
-The `rust-version = "1.78"` declaration is tested, not aspirational. Some dependency families later adopted Edition 2024 or raised their MSRV while remaining semver-compatible with broad dependency ranges, so v0.5.1 constrains the affected families in `Cargo.toml` as well as committing `Cargo.lock`.
+The `rust-version = "1.78"` declaration is tested, not aspirational. Some dependency families later adopted Edition 2024 or raised their MSRV while remaining semver-compatible with broad dependency ranges, so v0.6.0 constrains the affected families in `Cargo.toml` as well as committing `Cargo.lock`.
 
 Current compatibility pins include the Clap, ignore/globset, indexmap, Saphyr, ordered-float, and tempfile lines used by the reference CLI/parser. Do not casually widen those ranges: first prove the replacement graph with the Rust 1.78 CI job, then update the manifest and lockfile together.
 
@@ -82,7 +82,7 @@ A green `cargo test --all-targets` alone is not sufficient because Cargo's docte
 They are intentionally separate.
 
 ```text
-package/release: 0.5.1
+package/release: 0.6.0
 protocol schema:  memhooks/v2
 ```
 

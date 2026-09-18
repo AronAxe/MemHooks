@@ -78,7 +78,7 @@ Required:
 schema: memhooks/v2
 ```
 
-The package version and schema version are separate. v0.5.1 remains `memhooks/v2` and hard-rejects unsupported schemas during resolution.
+The package version and schema version are separate. v0.6.0 remains `memhooks/v2` and hard-rejects unsupported schemas during resolution.
 
 ## Canonical root
 
@@ -264,7 +264,7 @@ For a target:
 
 ## Diagnostics
 
-The v0.5.1 validator uses YAML AST source positions rather than textual first-match searching. Repeated fields therefore point at the actual offending node.
+The v0.6.0 validator uses YAML AST source positions rather than textual first-match searching. Repeated fields therefore point at the actual offending node.
 
 Malformed structured query/entity/resource entries are preserved far enough to produce targeted lint diagnostics when possible. Truly syntactically invalid YAML can still produce a file-level parse error.
 

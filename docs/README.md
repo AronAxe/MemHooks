@@ -35,7 +35,7 @@ Operational advice about keeping cues concise, pruning stale routing, and choosi
 
 ## One structured data path
 
-v0.5.1 deliberately has one normative structured store:
+v0.6.0 deliberately has one normative structured store:
 
 ```text
 memhooks note / memhooks event

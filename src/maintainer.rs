@@ -1,13 +1,15 @@
+use crate::filesystem::{open_regular_file, path_error, regular_file_exists};
 use crate::model::{
     BackendMap, Entity, HookFrontmatter, RecallQuery, Resource, StructuredRecallQuery,
     StructuredResource,
 };
-use crate::parser::{parse_hook, render_hook, require_v2_schema, ParseError};
-use crate::resolver::{find_root, merge_backend_maps, HOOK_FILENAME};
+use crate::parser::{parse_hook, parse_hook_str, render_hook, ParseError};
+use crate::resolver::{find_root, merge_backend_maps, TargetContext, HOOK_FILENAME};
+use crate::validator::{discover_hooks, require_valid};
 use fs2::FileExt;
 use serde_json::Value as JsonValue;
 use std::collections::BTreeMap;
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use tempfile::NamedTempFile;
@@ -79,11 +81,8 @@ pub fn init(cwd: &Path) -> Result<PathBuf, MaintainerError> {
             format!("path does not exist: {}", cwd.display()),
         )));
     }
-    let root = find_root(cwd);
+    let root = find_root(cwd)?;
     let hook = root.join(HOOK_FILENAME);
-    if hook.exists() {
-        return Ok(hook);
-    }
 
     let project_name = root
         .file_name()
@@ -97,13 +96,18 @@ pub fn init(cwd: &Path) -> Result<PathBuf, MaintainerError> {
         inherits: Some(true),
         ..HookFrontmatter::default()
     };
-    with_hook_lock(&hook, || write_hook_atomic(&hook, &frontmatter, &body))?;
+    initialize_hook(&hook, &frontmatter, &body)?;
     Ok(hook)
 }
 
 pub fn add_note(cwd: &Path, input: NoteInput) -> Result<PathBuf, MaintainerError> {
+    let context = TargetContext::new(cwd)?;
+    let cwd = &context.directory;
     let root = enabled_root(cwd)?;
-    let target_directory = nearest_hook_directory(cwd, &root).unwrap_or(root.clone());
+    if normalize_text(&input.query).is_empty() {
+        return Err(path_error(cwd, "MH003", "recall query must not be empty").into());
+    }
+    let target_directory = nearest_hook_directory(cwd, &root)?.unwrap_or(root.clone());
     let hook = target_directory.join(HOOK_FILENAME);
     with_hook_lock(&hook, || {
         let (mut frontmatter, body) = load_or_default(&hook)?;
@@ -123,7 +127,7 @@ pub fn handle_event(payload: &JsonValue) -> Result<usize, MaintainerError> {
         .and_then(JsonValue::as_str)
         .map(PathBuf::from)
         .unwrap_or(std::env::current_dir()?);
-    let cwd = cwd.canonicalize().unwrap_or(cwd);
+    let cwd = TargetContext::new(&cwd)?.directory;
     let root = match enabled_root(&cwd) {
         Ok(root) => root,
         Err(MaintainerError::NotEnabled(_)) => return Ok(0),
@@ -137,7 +141,7 @@ pub fn handle_event(payload: &JsonValue) -> Result<usize, MaintainerError> {
     );
     let mut relative_files = candidates
         .into_iter()
-        .filter_map(|candidate| safe_existing_file(&candidate, &cwd, &root))
+        .filter_map(|candidate| safe_event_file(&candidate, &cwd, &root))
         .collect::<Vec<_>>();
     relative_files.sort();
     relative_files.dedup();
@@ -153,58 +157,95 @@ pub fn handle_event(payload: &JsonValue) -> Result<usize, MaintainerError> {
             .push(relative);
     }
 
-    let max_auto_paths = std::env::var("MEMHOOKS_AUTO_PATHS")
-        .ok()
-        .and_then(|value| value.parse::<usize>().ok())
-        .unwrap_or(12);
+    let max_auto_paths = match std::env::var("MEMHOOKS_AUTO_PATHS") {
+        Ok(value) => value
+            .parse::<usize>()
+            .ok()
+            .filter(|n| (1..=256).contains(n))
+            .ok_or_else(|| {
+                path_error(
+                    &root,
+                    "MH028",
+                    "MEMHOOKS_AUTO_PATHS must be an integer between 1 and 256",
+                )
+            })?,
+        Err(std::env::VarError::NotPresent) => 12,
+        Err(error) => return Err(path_error(&root, "MH028", error.to_string()).into()),
+    };
     let mut writes = 0;
 
     for (relative_directory, additions) in grouped {
-        let directory = root.join(relative_directory);
+        let directory = root.join(&relative_directory);
         if !directory.is_dir() {
             continue;
         }
         let hook = directory.join(HOOK_FILENAME);
-        with_hook_lock(&hook, || {
+        let additions = additions
+            .into_iter()
+            .filter(|path| root.join(path).is_file())
+            .collect::<Vec<_>>();
+        if additions.is_empty() && !regular_file_exists(&hook)? {
+            continue;
+        }
+        let changed = with_hook_lock(&hook, || {
             let (mut frontmatter, body) = load_or_default(&hook)?;
-            upsert_auto_query(&mut frontmatter.recall_queries, additions, max_auto_paths);
-            write_hook_atomic(&hook, &frontmatter, &body)
+            let before = frontmatter.clone();
+            prune_auto_queries(&mut frontmatter.recall_queries, &root)?;
+            if !additions.is_empty() {
+                upsert_auto_query(
+                    &mut frontmatter.recall_queries,
+                    additions,
+                    max_auto_paths,
+                    &relative_directory,
+                );
+            }
+            if frontmatter == before {
+                return Ok(false);
+            }
+            write_hook_atomic(&hook, &frontmatter, &body)?;
+            Ok(true)
         })?;
-        writes += 1;
+        writes += usize::from(changed);
     }
 
     Ok(writes)
 }
 
 fn enabled_root(cwd: &Path) -> Result<PathBuf, MaintainerError> {
-    let root = find_root(cwd);
-    if root.join(HOOK_FILENAME).is_file() {
+    let root = find_root(cwd)?;
+    let hook = root.join(HOOK_FILENAME);
+    if regular_file_exists(&hook)? {
+        require_valid(&parse_hook(&hook)?)?;
         Ok(root)
     } else {
         Err(MaintainerError::NotEnabled(root))
     }
 }
 
-fn nearest_hook_directory(cwd: &Path, root: &Path) -> Option<PathBuf> {
-    let start = if cwd.is_file() { cwd.parent()? } else { cwd };
+fn nearest_hook_directory(cwd: &Path, root: &Path) -> Result<Option<PathBuf>, ParseError> {
+    let start = if cwd.is_file() {
+        cwd.parent().unwrap_or(cwd)
+    } else {
+        cwd
+    };
     for directory in start.ancestors() {
         if !directory.starts_with(root) {
             break;
         }
-        if directory.join(HOOK_FILENAME).is_file() {
-            return Some(directory.to_path_buf());
+        if regular_file_exists(&directory.join(HOOK_FILENAME))? {
+            return Ok(Some(directory.to_path_buf()));
         }
         if directory == root {
             break;
         }
     }
-    None
+    Ok(None)
 }
 
 fn load_or_default(path: &Path) -> Result<(HookFrontmatter, String), MaintainerError> {
-    if path.exists() {
+    if regular_file_exists(path)? {
         let parsed = parse_hook(path)?;
-        require_v2_schema(&parsed)?;
+        require_valid(&parsed)?;
         Ok((parsed.frontmatter, parsed.body))
     } else {
         Ok((
@@ -268,10 +309,25 @@ fn merge_note_metadata(target: &mut StructuredRecallQuery, input: NoteInput) {
     merge_backend_maps(&mut target.backends, &input.backends);
 }
 
-fn upsert_auto_query(queries: &mut Vec<RecallQuery>, additions: Vec<PathBuf>, max_paths: usize) {
+fn upsert_auto_query(
+    queries: &mut Vec<RecallQuery>,
+    additions: Vec<PathBuf>,
+    max_paths: usize,
+    directory: &Path,
+) {
+    let scope = if directory.as_os_str().is_empty() {
+        ".".to_string()
+    } else {
+        directory.to_string_lossy().replace('\\', "/")
+    };
+    let scoped_query = format!("{AUTO_QUERY} [scope: {scope}]");
+    let owned = |query: &&RecallQuery| {
+        query.tags().iter().any(|tag| tag == AUTO_TAG)
+            && (query.text().trim() == AUTO_QUERY || query.text().trim() == scoped_query)
+    };
     let mut structured = queries
         .iter()
-        .find(|query| query.text().trim() == AUTO_QUERY)
+        .find(owned)
         .cloned()
         .map(|query| match query {
             RecallQuery::Simple(query) => StructuredRecallQuery {
@@ -281,10 +337,11 @@ fn upsert_auto_query(queries: &mut Vec<RecallQuery>, additions: Vec<PathBuf>, ma
             RecallQuery::Structured(value) => value,
         })
         .unwrap_or_else(|| StructuredRecallQuery {
-            query: AUTO_QUERY.into(),
+            query: scoped_query.clone(),
             ..StructuredRecallQuery::default()
         });
 
+    structured.query = scoped_query;
     if !structured.tags.iter().any(|tag| tag == AUTO_TAG) {
         structured.tags.push(AUTO_TAG.into());
     }
@@ -314,10 +371,10 @@ fn upsert_auto_query(queries: &mut Vec<RecallQuery>, additions: Vec<PathBuf>, ma
         .retain(|resource| !matches!(resource, Resource::Structured(value) if value.kind.as_deref() == Some("file")));
     structured.resources.extend(resources);
 
-    if let Some(existing) = queries
-        .iter_mut()
-        .find(|query| query.text().trim() == AUTO_QUERY)
-    {
+    if let Some(existing) = queries.iter_mut().find(|query| {
+        query.tags().iter().any(|tag| tag == AUTO_TAG)
+            && (query.text().trim() == AUTO_QUERY || query.text().trim() == structured.query)
+    }) {
         *existing = RecallQuery::Structured(structured);
     } else {
         queries.push(RecallQuery::Structured(structured));
@@ -361,7 +418,6 @@ fn safe_existing_file(candidate: &str, cwd: &Path, root: &Path) -> Option<PathBu
         || candidate.starts_with("http://")
         || candidate.starts_with("https://")
         || candidate.starts_with("git@")
-        || candidate.contains(['(', ')'])
     {
         return None;
     }
@@ -397,12 +453,7 @@ fn with_hook_lock<T>(
         .and_then(|value| value.to_str())
         .unwrap_or(HOOK_FILENAME);
     let lock_path = parent.join(format!(".{filename}.lock"));
-    let lock = OpenOptions::new()
-        .create(true)
-        .read(true)
-        .write(true)
-        .truncate(false)
-        .open(lock_path)?;
+    let lock = open_regular_file(&lock_path, true)?;
     lock.lock_exclusive()?;
     let result = operation();
     let _ = FileExt::unlock(&lock);
@@ -416,7 +467,9 @@ fn write_hook_atomic(
 ) -> Result<(), MaintainerError> {
     let parent = hook.parent().unwrap_or(Path::new("."));
     fs::create_dir_all(parent)?;
+    regular_file_exists(hook)?;
     let content = render_hook(frontmatter, body)?;
+    require_valid(&parse_hook_str(hook, &content)?)?;
     let mut temporary = NamedTempFile::new_in(parent)?;
     temporary.write_all(content.as_bytes())?;
     temporary.flush()?;
@@ -446,5 +499,189 @@ fn extend_unique<T: PartialEq>(target: &mut Vec<T>, values: impl Iterator<Item =
         if !target.contains(&value) {
             target.push(value);
         }
+    }
+}
+
+// Existence and validation belong in the same critical section as creation.
+fn initialize_hook(
+    hook: &Path,
+    frontmatter: &HookFrontmatter,
+    body: &str,
+) -> Result<(), MaintainerError> {
+    with_hook_lock(hook, || {
+        if regular_file_exists(hook)? {
+            require_valid(&parse_hook(hook)?)?;
+            return Ok(());
+        }
+        write_hook_atomic(hook, frontmatter, body)
+    })
+}
+
+// Missing leaf paths let explicit delete/rename events reconcile existing local cues.
+fn safe_event_file(candidate: &str, cwd: &Path, root: &Path) -> Option<PathBuf> {
+    if let Some(path) = safe_existing_file(candidate, cwd, root) {
+        return Some(path);
+    }
+    let path = cwd.join(candidate);
+    if fs::symlink_metadata(&path).is_ok() {
+        return None;
+    }
+    let name = path.file_name()?;
+    if name == HOOK_FILENAME {
+        return None;
+    }
+    let canonical = path.parent()?.canonicalize().ok()?.join(name);
+    let relative = canonical.strip_prefix(root).ok()?.to_path_buf();
+    if relative
+        .components()
+        .any(|part| SKIP_PARTS.contains(&part.as_os_str().to_string_lossy().as_ref()))
+    {
+        return None;
+    }
+    Some(relative)
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize)]
+pub struct PruneReport {
+    pub hooks_changed: usize,
+    pub resources_removed: usize,
+    pub queries_removed: usize,
+    pub dry_run: bool,
+}
+
+/// Remove one locally authored query by normalized text, never backend memories.
+/// Dry runs do not create locks or change files.
+pub fn remove_note(cwd: &Path, query: &str, dry_run: bool) -> Result<bool, MaintainerError> {
+    let context = TargetContext::new(cwd)?;
+    let root = enabled_root(&context.directory)?;
+    let directory = nearest_hook_directory(&context.directory, &root)?.unwrap_or(root);
+    let hook = directory.join(HOOK_FILENAME);
+    let operation = || {
+        let (mut fm, body) = load_or_default(&hook)?;
+        let count = fm.recall_queries.len();
+        fm.recall_queries
+            .retain(|item| normalize_text(item.text()) != normalize_text(query));
+        let changed = fm.recall_queries.len() != count;
+        if changed && !dry_run {
+            write_hook_atomic(&hook, &fm, &body)?;
+        }
+        Ok(changed)
+    };
+    if dry_run {
+        operation()
+    } else {
+        with_hook_lock(&hook, operation)
+    }
+}
+
+/// Reconcile generated file cues after deletion/rename. Semantic notes are untouched.
+pub fn prune(cwd: &Path, all: bool, dry_run: bool) -> Result<PruneReport, MaintainerError> {
+    let context = TargetContext::new(cwd)?;
+    let root = enabled_root(&context.directory)?;
+    let mut report = PruneReport {
+        dry_run,
+        ..PruneReport::default()
+    };
+    for hook in discover_hooks(&context.target, all)? {
+        let operation = || {
+            let (mut fm, body) = load_or_default(&hook)?;
+            let (resources, queries) = prune_auto_queries(&mut fm.recall_queries, &root)?;
+            if resources + queries > 0 && !dry_run {
+                write_hook_atomic(&hook, &fm, &body)?;
+            }
+            Ok((resources, queries))
+        };
+        let (resources, queries) = if dry_run {
+            operation()?
+        } else {
+            with_hook_lock(&hook, operation)?
+        };
+        report.hooks_changed += usize::from(resources + queries > 0);
+        report.resources_removed += resources;
+        report.queries_removed += queries;
+    }
+    Ok(report)
+}
+
+fn prune_auto_queries(
+    queries: &mut Vec<RecallQuery>,
+    root: &Path,
+) -> Result<(usize, usize), MaintainerError> {
+    let mut removed = 0;
+    for query in queries.iter_mut() {
+        let RecallQuery::Structured(query) = query else {
+            continue;
+        };
+        if !query.tags.iter().any(|tag| tag == AUTO_TAG) {
+            continue;
+        }
+        let mut retained = Vec::new();
+        for resource in std::mem::take(&mut query.resources) {
+            let is_file = matches!(&resource, Resource::Structured(value) if value.kind.as_deref() == Some("file"));
+            let keep = if is_file {
+                match root.join(resource.name()).canonicalize() {
+                    Ok(path) => path.starts_with(root) && path.is_file(),
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => false,
+                    Err(error) => return Err(error.into()),
+                }
+            } else {
+                true
+            };
+            if keep {
+                retained.push(resource);
+            } else {
+                removed += 1;
+            }
+        }
+        query.resources = retained;
+    }
+    let before = queries.len();
+    queries.retain(|query| {
+        !(query.tags().iter().any(|tag| tag == AUTO_TAG) && query.resources().is_empty())
+    });
+    Ok((removed, before - queries.len()))
+}
+
+#[cfg(test)]
+mod initialization_tests {
+    use super::*;
+    use std::sync::{Arc, Barrier};
+
+    #[test]
+    fn stale_initializer_preserves_an_intervening_note() {
+        let repo = tempfile::tempdir().unwrap();
+        fs::create_dir(repo.path().join(".git")).unwrap();
+        let hook = repo.path().join(HOOK_FILENAME);
+        let prepared = Arc::new(Barrier::new(2));
+        let resume = Arc::new(Barrier::new(2));
+        std::thread::scope(|scope| {
+            let prepared_worker = prepared.clone();
+            let resume_worker = resume.clone();
+            let hook = &hook;
+            scope.spawn(move || {
+                assert!(!hook.exists()); // the stale observation made by the old implementation
+                let fm = HookFrontmatter {
+                    schema: Some("memhooks/v2".into()),
+                    ..Default::default()
+                };
+                prepared_worker.wait();
+                resume_worker.wait();
+                initialize_hook(hook, &fm, "must not replace the other initializer").unwrap();
+            });
+            prepared.wait();
+            init(repo.path()).unwrap();
+            add_note(
+                repo.path(),
+                NoteInput {
+                    query: "Keep this note".into(),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            resume.wait();
+        });
+        let text = fs::read_to_string(hook).unwrap();
+        assert!(text.contains("Keep this note"));
+        assert!(!text.contains("must not replace"));
     }
 }

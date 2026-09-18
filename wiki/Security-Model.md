@@ -1,5 +1,9 @@
 # Security Model
 
+
+> **0.6.0 update:** See [[Release-0.6.0]] for validated routing, canonical paths,
+> active-file/role input, exact context budgets, generated-cue cleanup and API migration.
+
 MemHooks deliberately treats repository-controlled hook content as **untrusted retrieval metadata**.
 
 That sounds strict because it is supposed to be strict.

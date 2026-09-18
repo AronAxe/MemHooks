@@ -1,6 +1,6 @@
 [package]
 name = "memhooks"
-version = "0.5.1"
+version = "0.6.0"
 edition = "2021"
 rust-version = "1.78"
 description = "Backend-neutral parser, resolver, validator, maintainer, and CLI for filesystem-scoped AI agent memory routing"
@@ -27,6 +27,7 @@ include = [
 # Pin dependency families whose newest releases now require Edition 2024 / newer Rust.
 clap = { version = "=4.5.27", features = ["derive"] }
 fs2 = "0.4"
+libc = "0.2"
 ignore = "=0.4.23"
 globset = "=0.4.15"
 # Keep serde_yaml_ng/hashlink from selecting the Edition-2024 indexmap line.

@@ -1,11 +1,21 @@
+use crate::filesystem::{path_error, regular_file_exists};
 use crate::model::{BackendMap, Entity, HookFrontmatter, RecallQuery, Resource};
-use crate::parser::{parse_hook, require_v2_schema, ParseError, ParsedHook};
+use crate::parser::{parse_hook, ParseError, ParsedHook};
+use crate::validator::require_valid;
 use serde::{Deserialize, Serialize};
 use serde_yaml_ng::Value;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 pub const HOOK_FILENAME: &str = "MEMHOOKS.md";
+pub const PLAN_VERSION: &str = "memhooks/plan-v1";
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct QueryOmission {
+    pub source: PathBuf,
+    pub query: String,
+    pub reason: String,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Sourced<T> {
@@ -27,6 +37,8 @@ pub struct ResolvedHook {
     pub exclude: Vec<String>,
     pub backends: BackendMap,
     pub guidance: Vec<Sourced<String>>,
+    #[serde(skip)]
+    pub query_history: Vec<QueryOmission>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -42,6 +54,23 @@ pub struct EffectiveQuery {
 }
 
 impl ResolvedHook {
+    pub fn omitted_queries(&self, active_roles: &[String]) -> Vec<QueryOmission> {
+        let mut omissions = self.query_history.clone();
+        if !active_roles.is_empty() {
+            for item in &self.recall_queries {
+                let roles = item.value.roles();
+                if !roles.is_empty() && !roles.iter().any(|role| active_roles.contains(role)) {
+                    omissions.push(QueryOmission {
+                        source: item.source.clone(),
+                        query: item.value.text().to_string(),
+                        reason: "role_mismatch".into(),
+                    });
+                }
+            }
+        }
+        omissions
+    }
+
     pub fn effective_queries(&self, active_roles: &[String]) -> Vec<EffectiveQuery> {
         let role_filter_active = !active_roles.is_empty();
         self.recall_queries
@@ -127,97 +156,146 @@ fn merge_yaml_value(target: &mut Value, overlay: &Value) {
     }
 }
 
-/// Resolve the one canonical MemHooks root for a target.
-///
-/// `MEMHOOKS_ROOT` wins when it contains the target. Otherwise the nearest Git
-/// root is the hard boundary. Only outside Git do we fall back to the highest
-/// ancestor containing a hook.
-pub fn find_root(target: &Path) -> PathBuf {
-    let start = if target.is_file() {
-        target.parent().unwrap_or(target)
-    } else {
-        target
-    };
-
-    if let Some(configured) = std::env::var_os("MEMHOOKS_ROOT") {
-        let configured = PathBuf::from(configured);
-        let configured = configured.canonicalize().unwrap_or(configured);
-        let absolute_start = start.canonicalize().unwrap_or_else(|_| start.to_path_buf());
-        if absolute_start.starts_with(&configured) {
-            return configured;
-        }
-    }
-
-    for directory in start.ancestors() {
-        if directory.join(".git").exists() {
-            return directory.to_path_buf();
-        }
-    }
-
-    let hooked = start
-        .ancestors()
-        .filter(|directory| directory.join(HOOK_FILENAME).is_file())
-        .last();
-    hooked.unwrap_or(start).to_path_buf()
+/// Canonical paths shared by all filesystem-facing operations.
+#[derive(Debug, Clone)]
+pub struct TargetContext {
+    pub root: PathBuf,
+    pub target: PathBuf,
+    pub directory: PathBuf,
 }
 
-pub fn inheritance_chain(target: &Path) -> Vec<PathBuf> {
-    let target_dir = if target.is_file() {
-        target.parent().unwrap_or(target)
-    } else {
-        target
-    };
-    let root = find_root(target_dir);
-    directories_root_to_target(&root, target_dir)
-        .into_iter()
-        .map(|directory| directory.join(HOOK_FILENAME))
-        .filter(|path| path.is_file())
-        .collect()
+impl TargetContext {
+    pub fn new(target: &Path) -> Result<Self, ParseError> {
+        if target.file_name().is_some_and(|name| name == HOOK_FILENAME) {
+            regular_file_exists(target)?;
+        }
+        let target = target.canonicalize().map_err(|error| {
+            path_error(
+                target,
+                "MH024",
+                format!("could not canonicalize target: {error}"),
+            )
+        })?;
+        let directory = if target.is_file() {
+            target.parent().unwrap_or(&target).to_path_buf()
+        } else if target.is_dir() {
+            target.clone()
+        } else {
+            return Err(path_error(
+                &target,
+                "MH029",
+                "target is not a regular file or directory",
+            ));
+        };
+        let mut selected = None;
+        if let Some(configured) = std::env::var_os("MEMHOOKS_ROOT") {
+            let configured = PathBuf::from(configured);
+            let root = configured.canonicalize().map_err(|error| {
+                path_error(
+                    &configured,
+                    "MH024",
+                    format!("invalid MEMHOOKS_ROOT: {error}"),
+                )
+            })?;
+            if !root.is_dir() {
+                return Err(path_error(
+                    &root,
+                    "MH024",
+                    "MEMHOOKS_ROOT must be a directory",
+                ));
+            }
+            if directory.starts_with(&root) {
+                selected = Some(root);
+            }
+        }
+        let root = selected
+            .or_else(|| {
+                directory
+                    .ancestors()
+                    .find(|dir| dir.join(".git").exists())
+                    .map(Path::to_path_buf)
+            })
+            .or_else(|| {
+                directory
+                    .ancestors()
+                    .filter(|dir| std::fs::symlink_metadata(dir.join(HOOK_FILENAME)).is_ok())
+                    .last()
+                    .map(Path::to_path_buf)
+            })
+            .unwrap_or_else(|| directory.clone());
+        Ok(Self {
+            root,
+            target,
+            directory,
+        })
+    }
+}
+
+/// Resolve the canonical project boundary, reporting invalid paths/configuration.
+pub fn find_root(target: &Path) -> Result<PathBuf, ParseError> {
+    Ok(TargetContext::new(target)?.root)
+}
+
+pub fn inheritance_chain(target: &Path) -> Result<Vec<PathBuf>, ParseError> {
+    let context = TargetContext::new(target)?;
+    let mut chain = Vec::new();
+    for directory in directories_root_to_target(&context.root, &context.directory) {
+        let hook = directory.join(HOOK_FILENAME);
+        if regular_file_exists(&hook)? {
+            chain.push(hook);
+        }
+    }
+    Ok(chain)
 }
 
 pub fn parse_chain(target: &Path) -> Result<Vec<ParsedHook>, ParseError> {
     let mut parsed = Vec::new();
-    for path in inheritance_chain(target) {
+    for path in inheritance_chain(target)? {
         let hook = parse_hook(&path)?;
-        require_v2_schema(&hook)?;
-        if !hook.frontmatter.inherits() {
-            parsed.clear();
-        }
+        require_valid(&hook)?;
         parsed.push(hook);
     }
     Ok(parsed)
 }
 
 pub fn resolve(target: &Path) -> Result<ResolvedHook, ParseError> {
-    if !target.exists() {
-        return Err(ParseError {
-            code: "MH024",
-            path: target.to_path_buf(),
-            message: format!("target path does not exist: {}", target.display()),
-            line: None,
-            column: None,
-        });
-    }
-
-    let target = target
-        .canonicalize()
-        .unwrap_or_else(|_| target.to_path_buf());
-    let root = find_root(&target);
-    let hooks = parse_chain(&target)?;
-    Ok(resolve_parsed(root, target, &hooks))
+    let context = TargetContext::new(target)?;
+    let hooks = parse_chain(&context.target)?;
+    resolve_parsed(context.root, context.target, &hooks)
 }
 
-pub fn resolve_parsed(root: PathBuf, target: PathBuf, hooks: &[ParsedHook]) -> ResolvedHook {
+/// Validate caller-supplied parsed hooks before creating an executable plan.
+pub fn resolve_parsed(
+    root: PathBuf,
+    target: PathBuf,
+    hooks: &[ParsedHook],
+) -> Result<ResolvedHook, ParseError> {
     let mut resolved = ResolvedHook {
         root,
         target,
         ..ResolvedHook::default()
     };
-
     for hook in hooks {
+        require_valid(hook)?;
+        if !hook.frontmatter.inherits() {
+            let root = resolved.root.clone();
+            let target = resolved.target.clone();
+            let mut history = std::mem::take(&mut resolved.query_history);
+            history.extend(resolved.recall_queries.iter().map(|item| QueryOmission {
+                source: item.source.clone(),
+                query: item.value.text().to_string(),
+                reason: "inheritance_cut".into(),
+            }));
+            resolved = ResolvedHook {
+                root,
+                target,
+                query_history: history,
+                ..ResolvedHook::default()
+            };
+        }
         merge_hook(&mut resolved, hook);
     }
-    resolved
+    Ok(resolved)
 }
 
 fn directories_root_to_target(root: &Path, target: &Path) -> Vec<PathBuf> {
@@ -269,6 +347,11 @@ fn merge_hook(resolved: &mut ResolvedHook, hook: &ParsedHook) {
             .find(|existing| existing.value.text().trim() == query.text().trim())
         {
             // Query identity is its trimmed question text. More-local metadata wins.
+            resolved.query_history.push(QueryOmission {
+                source: existing.source.clone(),
+                query: existing.value.text().to_string(),
+                reason: "overridden".into(),
+            });
             *existing = sourced;
         } else {
             resolved.recall_queries.push(sourced);

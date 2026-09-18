@@ -83,31 +83,31 @@ def resolve_plan(binary: str, cwd: Path, roles: list[str] | None = None,
             raise ValueError("unsupported plan version; update the binary and adapter together")
         for field in ("sources", "effective_queries", "guidance", "omitted_queries"):
             if not isinstance(plan.get(field), list):
-                raise ValueError(f"malformed resolver field: {field}")
+                raise TypeError(f"malformed resolver field: {field}")
         if not isinstance(plan.get("root"), str) or not isinstance(plan.get("target"), str):
-            raise ValueError("malformed resolver root/target")
+            raise TypeError("malformed resolver root/target")
         if any(not isinstance(source, str) for source in plan["sources"]):
             raise ValueError("malformed source list")
         for field in ("guidance", "omitted_queries"):
             text_key = "value" if field == "guidance" else "query"
             for item in plan[field]:
                 if not isinstance(item, dict) or not isinstance(item.get(text_key), str):
-                    raise ValueError(f"malformed {field} item")
+                    raise TypeError(f"malformed {field} item")
         for field in ("entities", "resources", "tags", "exclude"):
             if not isinstance(plan.get(field, []), list):
-                raise ValueError(f"malformed {field}")
+                raise TypeError(f"malformed {field}")
         if not isinstance(plan.get("backends", {}), dict):
-            raise ValueError("malformed backend map")
+            raise TypeError("malformed backend map")
         for query in plan["effective_queries"]:
             if not isinstance(query, dict) or not isinstance(query.get("query"), str):
-                raise ValueError("malformed effective query")
+                raise TypeError("malformed effective query")
             priority = query.get("priority")
             if priority is not None and (isinstance(priority, bool) or
                     not isinstance(priority, (int, float)) or not math.isfinite(priority) or
                     not 0 <= priority <= 1):
                 raise ValueError("malformed query priority")
         return plan
-    except (OSError, subprocess.SubprocessError, ValueError, RecursionError) as exc:
+    except (OSError, subprocess.SubprocessError, ValueError, TypeError, RecursionError) as exc:
         diagnostic(f"resolver unavailable: {exc}")
         return None
 
@@ -224,19 +224,19 @@ def merge_plans(plans: list[dict[str, Any]]) -> dict[str, Any]:
             if source not in value["sources"]:
                 value["sources"].append(source)
         value["omitted_queries"].extend(view["omitted_queries"])
-        for field in indexes:
+        for field, field_index in indexes.items():
             for item in view[field]:
                 # An identical inherited item is reusable only with identical
                 # scope controls. Keep references to every contributing context.
                 controls = {key: context[key] for key in ("scope", "sensitivity", "exclude", "backends")}
                 identity = json.dumps([item, controls], sort_keys=True, ensure_ascii=False)
-                existing = indexes[field].get(identity)
+                existing = field_index.get(identity)
                 if existing is not None:
                     existing["contexts"].append(context_id)
                 else:
                     entry = {**item, "contexts": [context_id]}
                     value[field].append(entry)
-                    indexes[field][identity] = entry
+                    field_index[identity] = entry
     return value
 
 
@@ -279,7 +279,7 @@ def main() -> int:
         configure()
         payload = json.load(sys.stdin)
         if not isinstance(payload, dict):
-            raise ValueError("hook event must be a JSON object")
+            raise TypeError("hook event must be a JSON object")
         if payload.get("hook_event_name") != "pre_llm_call":
             emit({})
             return 0

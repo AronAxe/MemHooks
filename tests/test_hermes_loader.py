@@ -10,6 +10,8 @@ LOADER = Path(__file__).resolve().parents[1] / "hooks" / "hermes" / "memhooks_pr
 def make_fake_resolver(tmp_path):
     binary = tmp_path / "memhooks"
     plan = {
+        "plan_version": "memhooks/plan-v1",
+        "omitted_queries": [],
         "root": "/repo",
         "target": "/repo/src",
         "sources": ["/repo/MEMHOOKS.md"],
@@ -86,3 +88,4 @@ def test_loader_truncation_keeps_json_structurally_closed(tmp_path):
     context = json.loads(result.stdout)["context"]
     routing = json.loads(context[context.index("{"):])
     assert routing.get("truncated") is True
+    assert len(context) <= 350

@@ -1,5 +1,9 @@
 # CLI Cookbook
 
+
+> **0.6.0 update:** See [[Release-0.6.0]] for validated routing, canonical paths,
+> active-file/role input, exact context budgets, generated-cue cleanup and API migration.
+
 The `memhooks` binary is both the reference CLI and a thin surface over the same Rust library used by adapters.
 
 ## Install

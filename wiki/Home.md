@@ -1,5 +1,9 @@
 # MemHooks
 
+
+> **0.6.0 update:** See [[Release-0.6.0]] for validated routing, canonical paths,
+> active-file/role input, exact context budgets, generated-cue cleanup and API migration.
+
 **Mnemonic devices for agents.** 🎣
 
 MemHooks is a filesystem-scoped retrieval-routing protocol for AI agents. It solves a deceptively simple failure mode:

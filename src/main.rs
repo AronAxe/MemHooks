@@ -67,6 +67,24 @@ enum Command {
         #[arg(long, default_value = "{}")]
         backends: String,
     },
+    /// Remove one query from the nearest local hook (never backend memories).
+    Remove {
+        #[arg(long, default_value = ".")]
+        cwd: PathBuf,
+        #[arg(long)]
+        query: String,
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Prune stale generated file cues after deletions or renames.
+    Prune {
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        #[arg(long)]
+        all: bool,
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Consume one post_tool_call event from stdin and maintain file anchors.
     Event,
 }
@@ -86,6 +104,8 @@ enum ExplainFormat {
 
 #[derive(Serialize)]
 struct ExplainOutput<'a> {
+    plan_version: &'static str,
+    omitted_queries: Vec<memhooks::QueryOmission>,
     #[serde(flatten)]
     resolved: &'a ResolvedHook,
     active_roles: &'a [String],
@@ -114,6 +134,33 @@ fn main() {
         } => run_note(
             cwd, query, priority, roles, entities, resources, tags, backends,
         ),
+        Command::Remove {
+            cwd,
+            query,
+            dry_run,
+        } => match memhooks::remove_note(&cwd, &query, dry_run) {
+            Ok(changed) => {
+                println!("{}", json!({"changed": changed, "dry_run": dry_run}));
+                0
+            }
+            Err(error) => {
+                eprintln!("error: {error}");
+                1
+            }
+        },
+        Command::Prune { path, all, dry_run } => match memhooks::prune(&path, all, dry_run) {
+            Ok(report) => {
+                println!(
+                    "{}",
+                    serde_json::to_string(&report).expect("serialize prune report")
+                );
+                0
+            }
+            Err(error) => {
+                eprintln!("error: {error}");
+                1
+            }
+        },
         Command::Event => run_event(),
     };
     std::process::exit(exit_code);
@@ -164,14 +211,19 @@ fn run_explain(path: PathBuf, roles: Vec<String>, format: ExplainFormat) -> i32 
     match format {
         ExplainFormat::Json => {
             let output = ExplainOutput {
+                plan_version: memhooks::PLAN_VERSION,
+                omitted_queries: resolved.omitted_queries(&roles),
                 resolved: &resolved,
                 active_roles: &roles,
                 effective_queries: &queries,
             };
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&output).expect("serialize explain output")
-            );
+            match serde_json::to_string_pretty(&output) {
+                Ok(output) => println!("{output}"),
+                Err(error) => {
+                    eprintln!("error: routing metadata cannot be represented as JSON: {error}");
+                    return 1;
+                }
+            }
         }
         ExplainFormat::Human => {
             println!("MemHooks effective context");
@@ -395,7 +447,7 @@ fn validation_root(path: &Path, all: bool) -> PathBuf {
         return path.parent().unwrap_or(Path::new(".")).to_path_buf();
     }
     if all {
-        find_root(path)
+        find_root(path).unwrap_or_else(|_| path.to_path_buf())
     } else if path.is_file() {
         path.parent().unwrap_or(Path::new(".")).to_path_buf()
     } else {
@@ -559,6 +611,18 @@ fn diagnostic_rule(code: &str) -> (&'static str, &'static str) {
         "MH026" => (
             "Malformed entity",
             "An entity entry or one of its known fields has the wrong YAML type.",
+        ),
+        "MH028" => (
+            "Invalid configuration",
+            "Check the documented environment-setting ranges.",
+        ),
+        "MH029" => (
+            "Unsafe filesystem path",
+            "Use regular hook/lock files, not symlinks or special files.",
+        ),
+        "MH030" => (
+            "Hook discovery failed",
+            "Check filesystem permissions and retry the scan.",
         ),
         "MH027" => (
             "Malformed resource",

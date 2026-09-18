@@ -22,3 +22,4 @@
 **Repository:** [AronAxe/MemHooks](https://github.com/AronAxe/MemHooks)
 
 **Rust crate:** [memhooks on crates.io](https://crates.io/crates/memhooks)
+- [[Release-0.6.0]]

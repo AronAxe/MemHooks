@@ -2,19 +2,19 @@
 
 The `memhooks` crate exposes the same parser, resolver, validator, and **frontmatter maintainer** used by the reference CLI. Agent runtimes can call the library directly instead of spawning the CLI or reimplementing root discovery, inheritance, role routing, or file maintenance.
 
-The v0.5.1 library implements **`memhooks/v2`**. The core is backend-neutral; provider-native configuration is carried as opaque YAML under `backends.<provider>`.
+The v0.6.0 library implements **`memhooks/v2`**. The core is backend-neutral; provider-native configuration is carried as opaque YAML under `backends.<provider>`.
 
 ## Add the dependency
 
 ```toml
 [dependencies]
-memhooks = "0.5.1"
+memhooks = "0.6.0"
 ```
 
 or:
 
 ```bash
-cargo add memhooks@0.5.1
+cargo add memhooks@0.6.0
 ```
 
 ## Resolve effective context
@@ -189,7 +189,7 @@ Diagnostics use locations from the YAML frontmatter AST, so repeated keys such a
 
 ## Maintain hooks through the same data model
 
-The library now owns maintenance as well as reading. This is the important v0.5.1 invariant: **what the maintainer writes is immediately visible through `resolve`.**
+The library now owns maintenance as well as reading. This is the important v0.6.0 invariant: **what the maintainer writes is immediately visible through `resolve`.**
 
 Initialize a project:
 
@@ -318,3 +318,11 @@ The crate deliberately stops before memory retrieval. The host runtime remains r
 - retaining memory provenance.
 
 This boundary keeps `memhooks/v2` backend-neutral while still giving runtimes one normative parser/resolver/maintainer implementation.
+
+
+## 0.6 runtime and maintenance additions
+
+See [the runtime contract and migration guide](https://github.com/AronAxe/MemHooks/blob/main/docs/runtime-plan.md)
+for `memhooks/plan-v1`, session-local `active_files`/`active_roles`, exact emitted
+context limits, `prune`/`remove` previews, fallible Rust APIs and the hook/lock
+symlink policy. Install CLI 0.6.0 and the matching adapter together.

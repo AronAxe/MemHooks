@@ -86,7 +86,7 @@ impl Diagnostic {
 
     pub fn from_parse(error: ParseError) -> Self {
         Self {
-            code: error.code.into(),
+            code: error.code,
             severity: Severity::Error,
             message: error.message,
             path: error.path,
@@ -95,6 +95,23 @@ impl Diagnostic {
             help: None,
         }
     }
+}
+
+/// Reject semantic errors while allowing forward-compatible warnings.
+pub fn require_valid(parsed: &ParsedHook) -> Result<(), ParseError> {
+    if let Some(error) = validate_parsed(parsed)
+        .into_iter()
+        .find(|d| d.severity == Severity::Error)
+    {
+        return Err(ParseError {
+            code: error.code,
+            path: error.path,
+            message: error.message,
+            line: error.line,
+            column: error.column,
+        });
+    }
+    Ok(())
 }
 
 pub fn validate_file(path: &Path) -> Vec<Diagnostic> {
@@ -211,45 +228,42 @@ pub fn validate_parsed(parsed: &ParsedHook) -> Vec<Diagnostic> {
     diagnostics
 }
 
-pub fn discover_hooks(path: &Path, all: bool) -> Vec<PathBuf> {
-    if path.is_file() {
-        return vec![path.to_path_buf()];
+/// Discover hooks without silently swallowing traversal errors or hook symlinks.
+pub fn discover_hooks(path: &Path, all: bool) -> Result<Vec<PathBuf>, ParseError> {
+    let context = crate::resolver::TargetContext::new(path)?;
+    if context.target.is_file() && !all {
+        return Ok(vec![context.target]);
     }
-
-    let scan_root = if all {
-        crate::resolver::find_root(path)
-    } else {
-        path.to_path_buf()
-    };
-    let mut hooks = WalkBuilder::new(&scan_root)
+    let scan_root = if all { context.root } else { context.directory };
+    let mut hooks = Vec::new();
+    for entry in WalkBuilder::new(&scan_root)
         .hidden(false)
         .git_ignore(true)
         .git_exclude(true)
         .git_global(true)
+        .follow_links(false)
         .build()
-        .filter_map(Result::ok)
-        .filter(|entry| entry.file_type().is_some_and(|kind| kind.is_file()))
-        .filter(|entry| entry.file_name() == crate::resolver::HOOK_FILENAME)
-        .map(|entry| entry.into_path())
-        .collect::<Vec<_>>();
+    {
+        let entry = entry.map_err(|error| {
+            crate::filesystem::path_error(
+                &scan_root,
+                "MH030",
+                format!("could not scan hooks: {error}"),
+            )
+        })?;
+        if entry.file_name() == crate::resolver::HOOK_FILENAME {
+            hooks.push(entry.into_path());
+        }
+    }
     hooks.sort();
-    hooks
+    Ok(hooks)
 }
 
 pub fn validate_path(path: &Path, all: bool) -> Vec<Diagnostic> {
-    if !path.exists() {
-        return vec![Diagnostic {
-            code: "MH024".into(),
-            severity: Severity::Error,
-            message: format!("target path does not exist: {}", path.display()),
-            path: path.to_path_buf(),
-            line: None,
-            column: None,
-            help: Some("check the path spelling before validating".into()),
-        }];
-    }
-
-    let hooks = discover_hooks(path, all);
+    let hooks = match discover_hooks(path, all) {
+        Ok(hooks) => hooks,
+        Err(error) => return vec![Diagnostic::from_parse(error)],
+    };
     if hooks.is_empty() {
         return vec![Diagnostic {
             code: "MH013".into(),
@@ -258,10 +272,7 @@ pub fn validate_path(path: &Path, all: bool) -> Vec<Diagnostic> {
             path: path.to_path_buf(),
             line: None,
             column: None,
-            help: Some(
-                "run `memhooks init` to enable the project, or validate a MemHooks-enabled path"
-                    .into(),
-            ),
+            help: Some("run `memhooks init` to enable the project".into()),
         }];
     }
     hooks.iter().flat_map(|hook| validate_file(hook)).collect()
