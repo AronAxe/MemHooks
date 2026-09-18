@@ -1,5 +1,19 @@
 # Hermes runtime integration
 
+## Choose one integration mode
+
+**Native, end-to-end recall (repository addition; no new crate release):**
+[Install the opt-in Hermes/Hindsight plugin](../../docs/hermes-recall.md). It tracks
+successful file-tool activity per profile/session, reuses the Rust resolver and
+maintainer, calls authorized Hindsight Recall, and injects actual bounded memories.
+The plugin is installed separately from the Cargo binary. Do not enable it alongside
+the two MemHooks shell hooks below, which would duplicate routing/maintenance.
+
+**Existing routing-only shell adapter:** the remainder of this page describes the
+unchanged standalone adapter. It still makes no backend calls. Its pre-LLM context
+is a retrieval plan, not a claim that any memories have been retrieved.
+
+
 Hermes exposes lifecycle hooks, so MemHooks does not have to depend on the model remembering that `MEMHOOKS.md` exists.
 
 The v0.5.1 integration has one important rule:
