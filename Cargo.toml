@@ -11,16 +11,17 @@ documentation = "https://docs.rs/memhooks"
 readme = "README.md"
 keywords = ["ai", "agents", "memory", "context", "cli"]
 categories = ["command-line-utilities", "development-tools"]
+# Root-anchor file patterns: bare README.md would also include cache READMEs.
 include = [
-  "Cargo.toml",
-  "Cargo.lock",
-  "LICENSE",
-  "README.md",
-  "SECURITY.md",
-  "CONTRIBUTING.md",
-  "src/**",
-  "docs/**",
-  "references/**",
+  "/Cargo.toml",
+  "/Cargo.lock",
+  "/LICENSE",
+  "/README.md",
+  "/SECURITY.md",
+  "/CONTRIBUTING.md",
+  "/src/**",
+  "/docs/**",
+  "/references/**",
 ]
 
 [dependencies]
