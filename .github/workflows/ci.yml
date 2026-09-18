@@ -19,6 +19,7 @@ env:
 jobs:
   rust:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - name: Rust format
@@ -35,6 +36,13 @@ jobs:
         run: cargo doc --locked --no-deps
       - name: Validate repository MemHooks
         run: cargo run --locked --quiet -- validate --all
+      - name: Real binary-to-adapter integration
+        env:
+          MEMHOOKS_REQUIRE_BINARY: "1"
+        run: |
+          cargo build --locked
+          python3 -m pip install --disable-pip-version-check 'pytest>=8,<10'
+          python3 -m pytest -q
       - name: Verify package manifest on pull requests
         if: github.event_name == 'pull_request'
         run: cargo package --locked --no-verify
@@ -44,6 +52,7 @@ jobs:
 
   msrv:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - name: Install declared Rust 1.78 toolchain
@@ -51,8 +60,21 @@ jobs:
       - name: Check declared MSRV
         run: cargo +1.78.0 check --locked --all-targets
 
+  portability:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Native filesystem and CLI tests
+        run: cargo test --locked --all-targets --all-features
+
   python:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
